@@ -93,4 +93,22 @@ TEST(sec_library_error_sanitizer) {
   CHECK(s.code == Err::TransportFailure && !has(s.detail, "abcdefghij"));
 }
 TEST(sec_looks_secret) { CHECK(looksSecret("rtmps://a:b@h")); CHECK(!looksSecret("plain text 123")); }
+TEST(sec_secret_key_names) {
+  for (auto n : {"password", "stream_key", "streamKey", "apiKey", "api-key", "X_AUTH_TOKEN", "--token", "key", "Secret", "access_token", "authorization", "pwd", "client_secret", "psk"}) CHECK(isSecretKeyName(n));
+  for (auto n : {"monkey", "keyboard", "os", "cpu", "design", "tokens", "profile_path", "", "--"}) CHECK(!isSecretKeyName(n));
+}
+TEST(sec_fuzz_no_crash_idempotent_and_never_leaks_planted_secret) {
+  const char* parts[] = {"rtmps://", "srt://", "http://", "://", "@", ":", "/", "?", "#", "=", "&", " ", "\\", "key", "token", "password", "stream_key", "C:\\Users\\", "/home/", "bob", "hunter2", "\"", "'", "{", "}", "--", "live_1_", "abcd-1234-efgh-5678-ijkl", "\n", "\xe2\x82\xac", "\xff", "Bearer ", "***", "<user>", "%2F"};
+  uint32_t x = 12345; auto rnd = [&]() { x = x * 1664525u + 1013904223u; return x >> 8; };
+  int leaks = 0, unstable = 0;
+  for (int i = 0; i < 20000; ++i) {
+    std::string s; int n = 1 + rnd() % 14; for (int k = 0; k < n; ++k) s += parts[rnd() % (sizeof parts / sizeof *parts)];
+    std::string r = redact(s); if (redact(r) != r) { if (++unstable == 1) std::printf("  unstable: [%s] -> [%s] -> [%s]\n", s.c_str(), r.c_str(), redact(r).c_str()); }
+    // planted: any URL/option carrying this exact secret must not survive
+    std::string planted = "rtmps://u:ZQ9secretZQ9@h.example/app/" + s.substr(0, 3) + "?token=ZQ9secretZQ9 stream_key=ZQ9secretZQ9 C:\\Users\\ZQ9secretZQ9\\x";
+    if (redact(planted).find("ZQ9secretZQ9") != std::string::npos) ++leaks;
+    std::string o = sanitizeLibraryError(s, 64); if (o.size() > 64) ++leaks;
+  }
+  CHECK(leaks == 0); CHECK(unstable == 0);
+}
 int main() { return ss_test::runAll(); }

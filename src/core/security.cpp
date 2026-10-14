@@ -260,7 +260,16 @@ bool isSecretKeyName(const std::string& name) {
   size_t b = 0; while (b < name.size() && name[b] == '-') ++b;
   return b < name.size() && isSecretName(name.substr(b));
 }
-std::string redact(const std::string& s) { return redactKeyShapes(redactUserNames(redactSecretOptions(redactUrls(s)))); }
+std::string redact(const std::string& s) {
+  // Rules interact (one rule's output can create context for another), so iterate to a fixed point (bounded).
+  std::string cur = s;
+  for (int i = 0; i < 4; ++i) {
+    std::string n = redactKeyShapes(redactUserNames(redactSecretOptions(redactUrls(cur))));
+    if (n == cur) break;
+    cur.swap(n);
+  }
+  return cur;
+}
 bool looksSecret(const std::string& s) { return redact(s) != s; }
 
 // ---- Redactor ----

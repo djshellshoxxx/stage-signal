@@ -70,7 +70,7 @@ CapabilityStatus AdmissionController::evaluate(const std::vector<FeatureDef>& re
     else if (f.requiresScenario && !p->passed(f.scenario)) deny(std::string("benchmark scenario ") + benchIdName(f.scenario) + " did not pass or was not run on the matching profile", true);
     else if (!p->cpuHeadroomAvailable) untested("headroom unknown: CPU counters were unavailable during the benchmark");
     else {
-      double room = std::min(p->cpuHeadroomPct, c.cpuBudgetPct - cpuAcc);
+      double room = std::min(p->cpuHeadroomPct - (cpuAcc - c.cpuUsedPct), c.cpuBudgetPct - cpuAcc);   // headroom is shared by all admitted additions
       if (f.cpuCostPct > room) deny("insufficient measured headroom (estimated +" + std::to_string((int)f.cpuCostPct) + "% CPU, " + std::to_string((int)std::max(0.0, room)) + "% available)", true);
       else { d.admission = Admission::Admitted; d.reason = "admitted from matching benchmark profile (no guarantee of future performance)"; }
     }

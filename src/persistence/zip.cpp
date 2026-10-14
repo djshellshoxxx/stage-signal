@@ -126,8 +126,8 @@ Status ZipWriter::finish() {
     p16(cd, 0); p16(cd, 0); p16(cd, 0); p16(cd, 0); p32(cd, 0); p32(cd, e.off);
     cd.insert(cd.end(), e.name.begin(), e.name.end());
   }
+  uint32_t cdSize = (uint32_t)cd.size();
   p32(cd, 0x06054b50); p16(cd, 0); p16(cd, 0); p16(cd, (uint32_t)ents_.size()); p16(cd, (uint32_t)ents_.size());
-  uint32_t cdSize = (uint32_t)(cd.size() - 22);
   p32(cd, cdSize); p32(cd, (uint32_t)cdStart); p16(cd, 0);
   return put(cd.data(), cd.size());
 }

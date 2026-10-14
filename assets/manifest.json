@@ -1,0 +1,121 @@
+{
+  "assets": [
+    {
+      "attribution": {
+        "location": "licenses/THIRD_PARTY.md (Bundled assets)",
+        "text": "None required (CC0-1.0). Credit appreciated: Circuit Drift Labs"
+      },
+      "commercialUse": true,
+      "copyright": "Copyright (c) 2026 Circuit Drift Labs; original work dedicated to the public domain under CC0-1.0",
+      "creator": "Circuit Drift Labs",
+      "derivedFrom": [],
+      "durationMs": 0,
+      "flash": {
+        "hasFlashing": false,
+        "hasStrobe": false,
+        "maxFlashHz": 0.0,
+        "notes": "Static image."
+      },
+      "height": 240,
+      "id": "cdl.testcard.320x240",
+      "license": "CC0-1.0",
+      "modification": true,
+      "originalUrl": "",
+      "path": "testcard_320x240.png",
+      "provenanceKind": "original",
+      "provenanceNotes": "Colour bars, grayscale ramp, 40 px grid, aspect circle. Procedurally generated. Created by tests/tools/gen_assets.cpp; contains no third-party material.",
+      "retrievalDate": "2026-10-14",
+      "sha256Distributed": "c617cc23fbad3750ff974ded1ce74bce5c9168b2c95c457411b426a5ea898b97",
+      "sha256Original": "c617cc23fbad3750ff974ded1ce74bce5c9168b2c95c457411b426a5ea898b97",
+      "sizeBytes": 3840,
+      "tiers": [
+        "BASE",
+        "STANDARD",
+        "ENHANCED",
+        "SHOW"
+      ],
+      "type": "still",
+      "version": "1.0.0",
+      "width": 320
+    },
+    {
+      "attribution": {
+        "location": "licenses/THIRD_PARTY.md (Bundled assets)",
+        "text": "None required (CC0-1.0). Credit appreciated: Circuit Drift Labs"
+      },
+      "commercialUse": true,
+      "copyright": "Copyright (c) 2026 Circuit Drift Labs; original work dedicated to the public domain under CC0-1.0",
+      "creator": "Circuit Drift Labs",
+      "derivedFrom": [],
+      "durationMs": 0,
+      "flash": {
+        "hasFlashing": false,
+        "hasStrobe": false,
+        "maxFlashHz": 0.0,
+        "notes": "Static image."
+      },
+      "height": 240,
+      "id": "cdl.placeholder.missing-media.320x240",
+      "license": "CC0-1.0",
+      "modification": true,
+      "originalUrl": "",
+      "path": "missing_media_320x240.png",
+      "provenanceKind": "original",
+      "provenanceNotes": "Documented 'MISSING MEDIA' checkerboard placeholder (media/placeholder.cpp, REQ-S08). Procedurally generated. Created by tests/tools/gen_assets.cpp; contains no third-party material.",
+      "retrievalDate": "2026-10-14",
+      "sha256Distributed": "c13b2d9ebc88596c2425515bd140e02a78ecc5f426b09b2bb6cd3ff7fef86f9f",
+      "sha256Original": "c13b2d9ebc88596c2425515bd140e02a78ecc5f426b09b2bb6cd3ff7fef86f9f",
+      "sizeBytes": 2978,
+      "tiers": [
+        "BASE",
+        "STANDARD",
+        "ENHANCED",
+        "SHOW"
+      ],
+      "type": "still",
+      "version": "1.0.0",
+      "width": 320
+    },
+    {
+      "attribution": {
+        "location": "licenses/THIRD_PARTY.md (Bundled assets)",
+        "text": "None required (CC0-1.0). Credit appreciated: Circuit Drift Labs"
+      },
+      "commercialUse": true,
+      "copyright": "Copyright (c) 2026 Circuit Drift Labs; original work dedicated to the public domain under CC0-1.0",
+      "creator": "Circuit Drift Labs",
+      "derivedFrom": [],
+      "durationMs": 960,
+      "flash": {
+        "hasFlashing": false,
+        "hasStrobe": false,
+        "maxFlashHz": 0.0,
+        "notes": "Small moving dot on a dark field; no full-field luminance change; frame rate 12.5 Hz of motion, not flashing."
+      },
+      "height": 48,
+      "id": "cdl.loop.dot.64x48",
+      "license": "CC0-1.0",
+      "modification": true,
+      "originalUrl": "",
+      "path": "loop_dot_64x48.gif",
+      "provenanceKind": "original",
+      "provenanceNotes": "12-frame looping orbit of a small dot with two-step trail; 80 ms/frame. Procedurally generated. Created by tests/tools/gen_assets.cpp; contains no third-party material.",
+      "retrievalDate": "2026-10-14",
+      "sha256Distributed": "087466a3db1979d8b2d6ae79b49022976debc1ac5a9a27af87be392deacaf5e9",
+      "sha256Original": "087466a3db1979d8b2d6ae79b49022976debc1ac5a9a27af87be392deacaf5e9",
+      "sizeBytes": 1634,
+      "tiers": [
+        "BASE",
+        "STANDARD",
+        "ENHANCED",
+        "SHOW"
+      ],
+      "type": "animation",
+      "version": "1.0.0",
+      "width": 64
+    }
+  ],
+  "decoders": [],
+  "generator": "tests/tools/gen_assets.cpp",
+  "schemaVersion": 1
+}
