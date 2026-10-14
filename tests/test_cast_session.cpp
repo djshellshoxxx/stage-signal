@@ -25,17 +25,25 @@ struct CapturingTransport : FaultyTransport {
   Status connect(const TransportParams& p, std::function<void(const TransportEvent&)> cb) override { captured = cb; return FaultyTransport::connect(p, cb); }
 };
 
+// Session owns (and destroys) its transport; the rig keeps the double alive through this forwarding proxy.
+struct Proxy : ITransport {
+  std::shared_ptr<FaultyTransport> t; explicit Proxy(std::shared_ptr<FaultyTransport> x) : t(std::move(x)) {}
+  Status connect(const TransportParams& p, std::function<void(const TransportEvent&)> cb) override { return t->connect(p, std::move(cb)); }
+  Status send(const MediaPacket& m) override { return t->send(m); }
+  void close() override { t->close(); }
+  TransportStats stats() const override { return t->stats(); }
+  std::string describe() const override { return t->describe(); }
+};
 struct Rig {
-  FakeClock clk; FakeSecrets secrets; TransportFactory factory; std::vector<FaultyTransport*> made; std::vector<std::string> logs; int keyframeReqs = 0;
+  FakeClock clk; FakeSecrets secrets; TransportFactory factory; std::vector<std::shared_ptr<FaultyTransport>> made; std::vector<std::string> logs; int keyframeReqs = 0;
   std::vector<BroadcastState> states; std::function<void(FaultyTransport&)> prepare; bool capturing = false;
   std::unique_ptr<BroadcastSession> s; UserActionGate gate{&clk};
   EncoderRegistry reg = EncoderRegistry::withBuiltins();
   Rig() {
     clk.t = 100 * kNsPerSec; clk.wall = 1767225600000LL; secrets.put("key-main", kSecret); secrets.put("pass-srt", "srt-pass-phrase-123");
     factory.setTestOverride([this]() -> std::unique_ptr<ITransport> {
-      FaultyTransport* ft; std::unique_ptr<ITransport> u;
-      if (capturing) { auto* c = new CapturingTransport(); ft = c; u.reset(c); } else { ft = new FaultyTransport(); u.reset(ft); }
-      if (prepare) prepare(*ft); made.push_back(ft); return u; });
+      std::shared_ptr<FaultyTransport> ft = capturing ? std::make_shared<CapturingTransport>() : std::make_shared<FaultyTransport>();
+      if (prepare) prepare(*ft); made.push_back(ft); return std::unique_ptr<ITransport>(new Proxy(ft)); });
     BroadcastDeps d; d.secrets = &secrets; d.clock = &clk; d.factory = &factory; d.log = [this](const std::string& l) { logs.push_back(l); }; d.requestKeyframe = [this] { ++keyframeReqs; }; d.rngSeed = 7;
     s.reset(new BroadcastSession(d)); s->setStateCallback([this](BroadcastState st) { states.push_back(st); });
   }
@@ -128,7 +136,7 @@ TEST(cast_state_machine_live_means_media_delivered) {
   std::vector<BroadcastState> want = {BroadcastState::Preparing, BroadcastState::Connecting}; CHECK(r.states == want);
   r.step(20); auto st = r.s->status(); CHECK(st.state == BroadcastState::Connecting); CHECK(st.connected); CHECK(!st.live); CHECK(st.text.find("waiting for media") != std::string::npos);   // socket/handshake is not "Live"
   CHECK(r.made.size() == 1 && r.made[0]->lastSecretSeen() == kSecret);                       // secret reached the transport, in memory
-  CHECK(r.s->submit(r.pkt(PacketKind::Video, false, 100, 1)));                                // non-key before first key frame is discarded
+  CHECK(!r.s->submit(r.pkt(PacketKind::Video, false, 100, 1)));                                // non-key before first key frame is discarded
   r.s->submit(r.pkt(PacketKind::Video, true, 500, 2)); r.s->submit(r.pkt(PacketKind::Audio, false, 60, 2)); r.step(20);
   st = r.s->status(); CHECK(st.state == BroadcastState::Live); CHECK(st.live && st.mediaFlowing); CHECK(st.packetsSent == 2); CHECK(st.text.find("not prove") != std::string::npos);
   auto got = r.made[0]->received(); CHECK(got.size() == 3); CHECK(got[0].kind == PacketKind::Headers); CHECK(got[1].kind == PacketKind::Video && got[1].key);   // headers first, then key frame
@@ -170,7 +178,7 @@ TEST(cast_stop_during_reconnect_cancels_and_late_callbacks_ignored) {
   Rig r; r.capturing = true; r.prepare = [](FaultyTransport& t) { for (int i = 0; i < 50; ++i) t.script.push_back({ConnectOutcome::Kind::Fail, TransportErrorClass::Network, "reset"}); };
   CHECK(r.start(r.settings()).ok() || true);
   r.step(100, 5); CHECK(r.s->state() == BroadcastState::Reconnecting);
-  auto* first = dynamic_cast<CapturingTransport*>(r.made[0]); auto staleCb = first->captured; CHECK((bool)staleCb);
+  auto first = std::dynamic_pointer_cast<CapturingTransport>(r.made[0]); auto staleCb = first->captured; CHECK((bool)staleCb);
   size_t madeBefore = r.made.size();
   auto t0 = std::chrono::steady_clock::now(); r.s->stop(); double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
   CHECK(ms < 1000.0); CHECK(r.s->state() == BroadcastState::Off);
@@ -180,7 +188,7 @@ TEST(cast_stop_during_reconnect_cancels_and_late_callbacks_ignored) {
   CHECK(r.s->state() == BroadcastState::Off); CHECK(r.made.size() == madeBefore);             // no further attempts
   CHECK(r.s->status().lateCallbacksIgnored >= 1);
   // a connection that succeeds but whose Disconnected callback arrives after stop() is ignored too
-  Rig r2; r2.capturing = true; CHECK(r2.start(r2.settings()).ok()); r2.step(20); auto cb2 = dynamic_cast<CapturingTransport*>(r2.made[0])->captured;
+  Rig r2; r2.capturing = true; CHECK(r2.start(r2.settings()).ok()); r2.step(20); auto cb2 = std::dynamic_pointer_cast<CapturingTransport>(r2.made[0])->captured;
   r2.s->stop(); TransportEvent dis; dis.type = TransportEvent::Type::Disconnected; dis.detail = "late"; cb2(dis); r2.step(1000, 30);
   CHECK(r2.s->state() == BroadcastState::Off); CHECK(r2.made.size() == 1);
 }
@@ -283,11 +291,11 @@ TEST(cast_secret_never_in_any_string) {
   r.s->setHeaders(r.pkt(PacketKind::Headers, true, 40));
   CHECK(r.start(b).ok() || true); grab();
   for (int i = 0; i < 400; ++i) { r.step(100); if (i % 7 == 0) { r.s->submit(r.pkt(PacketKind::Video, i % 3 == 0, 300, i)); r.s->submit(r.pkt(PacketKind::Audio, false, 40, i)); } grab(); }
-  strings.push_back(summary); strings.push_back(exportSettingsJson(b)); strings.push_back(cast::redactText(std::string("x ") + kSecret)); 
+  strings.push_back(summary); strings.push_back(exportSettingsJson(b)); strings.push_back(cast::redactWithSecret(std::string("x ") + kSecret, kSecret));
   for (auto& l : r.logs) strings.push_back(l);
   r.s->stop(); grab();
   // the secret DID reach the transport (otherwise this scan would prove nothing)
-  bool reached = false; for (auto* t : r.made) if (t->lastSecretSeen() == kSecret) reached = true; CHECK(reached);
+  bool reached = false; for (auto& t : r.made) if (t->lastSecretSeen() == kSecret) reached = true; CHECK(reached);
   size_t scanned = 0; for (auto& s : strings) { ++scanned; if (leaks(s)) { std::printf("   LEAK in: %s\n", s.c_str()); CHECK(false); } }
   CHECK(scanned > 100); CHECK(!r.logs.empty());
   // redactor behaviour

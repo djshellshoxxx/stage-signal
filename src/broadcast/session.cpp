@@ -142,8 +142,8 @@ struct BroadcastSession::Impl {
     if (state == BroadcastState::Reconnecting && (inFlight || connected) && t - outageStart >= kReconnectDeadlineNs && !flowing) { toError(Status::Fail(Err::TransportFailure, "Could not reconnect within 120 s; giving up."), false); return; }
     pump();
     // bitrate (1 s windows) and sustained-drop warning
-    if (t - lastRate >= kNsPerSec) { double dt = nsToSec(t - lastRate); kbps = lastRate ? (double)(bytes - lastBytes) * 8.0 / 1000.0 / dt : 0; lastBytes = bytes; lastRate = t;
-      PacketQueueStats qs = queue.stats(); if (qs.dropped > lastDropped) { lastDropNs = t; lastDropped = qs.dropped; } }
+    { PacketQueueStats qs = queue.stats(); if (qs.dropped > lastDropped) { lastDropNs = t; lastDropped = qs.dropped; } }
+    if (t - lastRate >= kNsPerSec) { double dt = nsToSec(t - lastRate); kbps = lastRate ? (double)(bytes - lastBytes) * 8.0 / 1000.0 / dt : 0; lastBytes = bytes; lastRate = t; }
   }
 };
 
@@ -192,6 +192,7 @@ Status BroadcastSession::start(UserStartToken&& token, const BroadcastSettings& 
       I.preMade = std::move(probe); }
     I.setState(BroadcastState::Connecting);
     I.startAttempt();
+    I.handleEvents();                           // transports that answer synchronously (config errors) surface in the return value
     return I.state == BroadcastState::Error ? I.err : Status::Ok();
   });
 }
