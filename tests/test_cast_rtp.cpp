@@ -4,6 +4,7 @@
 #include "broadcast/session.h"
 #include "recording/video_encoder.h"
 #include <cmath>
+#include <cstring>
 using namespace ss;
 
 static std::string hex(const std::vector<uint8_t>& v) { static const char* h = "0123456789abcdef"; std::string s; for (uint8_t b : v) { s.push_back(h[b >> 4]); s.push_back(h[b & 15]); } return s; }
@@ -126,13 +127,11 @@ TEST(rtp_sender_timing_ports_rtcp_and_sdp) {
     auto be32 = [](const std::vector<uint8_t>& d, size_t o) { return (uint32_t)((d[o] << 24) | (d[o + 1] << 16) | (d[o + 2] << 8) | d[o + 3]); };
     CHECK(srV->data[0] == 0x80 && srV->data[1] == 200); CHECK(be32(srV->data, 4) == tx.videoSsrc()); CHECK(be32(srA->data, 4) == tx.audioSsrc());
     CHECK(be32(srV->data, 8) == 1767225600u + 2208988800u + 2);                      // wall clock + 2 s advanced
-    CHECK(be32(srV->data, 20) == (uint32_t)st.videoPackets - 0 || true);
     CHECK(be32(srV->data, 20) == (uint32_t)v.size()); CHECK(be32(srA->data, 20) == 4);                                  // sender packet counts
     uint32_t octV = 0; for (auto* d : v) octV += (uint32_t)d->data.size() - 12; CHECK(be32(srV->data, 24) == octV);   // payload octets
-    CHECK(be32(srA->data, 24) == 4u * 480 * 2 * 2 / 2 * 1 || be32(srA->data, 24) == 2u * 480 * 4);
-    // RTP timestamp in the SR advances with the media clock: 2 s after the last video frame => +180000 ticks
-    CHECK(be32(srV->data, 16) == vt1 + (uint32_t)((clk.t - kNsPerSec * 3 - (p0 + 40 * kNsPerMs)) / 1000 * 90000 / 1000000) || true);
-    CHECK(be32(srV->data, 16) - vt1 == 180000u + 144000u - 144000u || be32(srV->data, 16) - vt1 > 100000u);
+    CHECK(be32(srA->data, 24) == 4u * 240 * 2 * 2);                                        // 4 packets x 240 frames x 2 ch x 2 B
+    // RTP timestamp in the SR tracks the media clock (NTP<->RTP mapping for lip-sync)
+    CHECK(be32(srV->data, 16) - vt1 == 176400u);                                            // 1.96 s after the last video frame at 90 kHz
     std::string tail((const char*)&srV->data[srV->data.size() - 16], 16); CHECK(tail.find("stagesignal") != std::string::npos);
   }
   // SDP matches what actually went on the wire and labels encryption
