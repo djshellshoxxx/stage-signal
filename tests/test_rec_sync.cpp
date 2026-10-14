@@ -7,12 +7,12 @@ using namespace ss;
 TEST(sync_rescale_timebases) {
   Rational ms{1, 1000}, ns{1, 1000000000}, ntsc{1001, 30000}, a48{1, 48000};
   CHECK(rescale(1000, ms, ns) == 1000000000LL);
-  CHECK(rescale(1500000, ns, ms) == 1500);
+  CHECK(rescale(1500000000LL, ns, ms) == 1500);
   CHECK(rescale(48000, a48, ms) == 1000);
   CHECK(rescale(30, ntsc, ns) == 1001000000LL);           // 30 NTSC frames == 1.001 s
   CHECK(nsToTicks(kNsPerSec, a48) == 48000);
   CHECK(ticksToNs(1, a48) == 20833);                      // rounded to nearest ns
-  CHECK(rescale(-1500000, ns, ms) == -1500);
+  CHECK(rescale(-1500000000LL, ns, ms) == -1500);
   CHECK(rec::samplesToNs(48000ull * 3600, 48000) == 3600 * kNsPerSec);   // exact over 1 h
   CHECK(rec::samplesToNs(1, 44100) == 22675);
 }
@@ -81,7 +81,7 @@ TEST(sync_drift_one_hour_residual_under_20ms) {
   CHECK_NEAR(raw.endResidualMs, 288.0, 3.0);
   DriftRun fix = runDrift(80, 1.0, 8000, 1.0, true);
   std::printf("   +80ppm: max residual after warm-up %.2f ms, end %.2f ms, measured %.2f ppm, applied %.2f\n", fix.maxAfterWarmMs, fix.endResidualMs, fix.st.measuredPpm, fix.st.appliedPpm);
-  CHECK(fix.maxAfterWarmMs <= 20.0); CHECK(std::fabs(fix.endResidualMs) <= 5.0);
+  CHECK(fix.maxAfterWarmMs <= 20.0); CHECK(fix.maxResidualMs <= 20.0); CHECK(std::fabs(fix.endResidualMs) <= 5.0);
   CHECK_NEAR(fix.st.measuredPpm, 80.0, 3.0); CHECK(!fix.st.excessive); CHECK(fix.firstError.ok());
   DriftRun neg = runDrift(-150, 1.0, 8000, 2.0, true);
   std::printf("   -150ppm: max after warm-up %.2f ms, end %.2f ms\n", neg.maxAfterWarmMs, neg.endResidualMs);
