@@ -69,15 +69,6 @@ SrcMap computeFit(int srcW, int srcH, const NormRect& crop, int dx, int dy, int 
 
 bool frameOk(const Frame* f) { return f && f->w > 0 && f->h > 0 && f->px.size() >= (size_t)f->w * (size_t)f->h; }
 
-inline uint32_t gainPx(uint32_t c, int g) {   // g Q8 0..1024 with saturation when >256
-  if (g <= 256) return mulQ8(c, (uint32_t)g);
-  uint32_t r = (((c >> 16) & 255) * (uint32_t)g) >> 8, gg = (((c >> 8) & 255) * (uint32_t)g) >> 8, b = ((c & 255) * (uint32_t)g) >> 8;
-  if (r > 255) r = 255;
-  if (gg > 255) gg = 255;
-  if (b > 255) b = 255;
-  return (r << 16) | (gg << 8) | b;
-}
-
 } // namespace
 
 struct Renderer::Impl {
@@ -384,7 +375,7 @@ void Renderer::render(Frame& out, const RenderState& s) {
   // ---- strobe slew guard (only when strobing is disabled and a strobe-flagged scene is on screen) -------------
   if (guard) {
     size_t n = (size_t)iw * ih; int64_t sum = 0; int cnt = 0;
-    for (size_t i = 0; i < n; i += 7) { sum += luma8(comp[i]); ++cnt; }
+    for (size_t i = 0; i < n; i += 4 + (((uint32_t)i * 2654435761u) >> 29)) { sum += luma8(comp[i]); ++cnt; }   // jittered stride: no aliasing with periodic patterns
     int L = cnt ? (int)(sum * 16 / cnt) : 0;           // 0..4080
     int lim = 16 * 16;                                  // ~6% of full range per frame (x16 fixed point)
     if (p.prevL >= 0) {
@@ -394,9 +385,13 @@ void Renderer::render(Frame& out, const RenderState& s) {
     }
     int Lt = L;
     if (p.prevL >= 0) Lt = clampi(L, p.prevL - lim, p.prevL + lim);
-    if (Lt != L && L > 0) {
-      int g = clampi((int)((int64_t)Lt * 256 / L), 0, 1024);
-      for (size_t i = 0; i < n; ++i) comp[i] = gainPx(comp[i], g);
+    if (Lt < L && L > 0) {                              // dim: exact multiplicative gain
+      uint32_t g = (uint32_t)((int64_t)Lt * 256 / L);
+      for (size_t i = 0; i < n; ++i) comp[i] = mulQ8(comp[i], g);
+    } else if (Lt > L) {                                // lift: add grey (luminance rises by the same amount until clipped)
+      uint32_t a = (uint32_t)(((Lt - L) + 15) / 16);
+      uint32_t grey = a * 0x010101u;
+      for (size_t i = 0; i < n; ++i) comp[i] = addSat(comp[i], grey);
     }
     p.prevL = Lt; p.guardLastNs = s.elapsedNs; p.st.strobeGuardActive = true;
   } else p.prevL = -1;

@@ -6,6 +6,7 @@
 #include <new>
 
 using namespace ss; using namespace ss::media;
+using mt::png; using mt::jpg; using mt::bmp;
 
 // Track the largest single operator-new request so tests can prove rejected inputs never allocate pixel buffers.
 static size_t g_maxNew = 0;

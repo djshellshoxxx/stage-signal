@@ -45,6 +45,7 @@ class MediaWriter {
   void setTagProvider(TagProvider p) { tags_ = std::move(p); }
   Status close();                                // finalize active segment; idempotent
   const std::vector<SegmentInfo>& segments() const { return segs_; }
+  uint64_t bytesWritten() const { uint64_t t = 0; for (auto& x : segs_) if (x.complete) t += x.bytes; return t + (sink_ ? sink_->size() : 0); }
   uint64_t nextSample() const { return nextSample_; }          // audio samples accepted so far (+firstSample)
   uint64_t durableAudioFrames() const { return durableAudio_; }
   uint64_t clampedSamples() const { return clamped_; }

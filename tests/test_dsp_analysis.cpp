@@ -1,7 +1,22 @@
 // MOD-03 analyzer tests: levels, bands, onsets, clipping, sanitation, discontinuity (REQ-A03/A04/A10, IF-01/03).
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic ignored "-Wmismatched-new-delete"
+#endif
 #include "test.h"
 #include "test_dsp_util.h"
 #include <cstdlib>
+#include <new>
+#include <atomic>
+
+// Allocation counter: proves Analyzer::process()/snapshot() are heap-free after construction.
+static std::atomic<long> g_allocs{0};
+static std::atomic<bool> g_count{false};
+void* operator new(std::size_t n) { if (g_count.load()) ++g_allocs; void* p = std::malloc(n ? n : 1); if (!p) throw std::bad_alloc(); return p; }
+void* operator new[](std::size_t n) { if (g_count.load()) ++g_allocs; void* p = std::malloc(n ? n : 1); if (!p) throw std::bad_alloc(); return p; }
+void operator delete(void* p) noexcept { std::free(p); }
+void operator delete[](void* p) noexcept { std::free(p); }
+void operator delete(void* p, std::size_t) noexcept { std::free(p); }
+void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
 using namespace ss;
 using namespace dsptest;
 
@@ -235,6 +250,23 @@ TEST(dsp_steady_signals_no_onsets) {
   Analyzer b(48000, 1);
   feed(b, noiseBuf(0.1, 10.0, 48000, 3), 48000, 1);
   CHECK(b.snapshot(0).onsetCount <= 1);
+}
+
+TEST(dsp_analyzer_process_is_allocation_free) {
+  Analyzer a(48000, 2);
+  auto sig = dup(noiseBuf(0.2, 1.0, 48000, 4));
+  AudioBlock b; b.rate = 48000; b.channels = 2; b.flags = AF_TimestampValid;
+  b.samples.assign(sig.begin(), sig.begin() + 960);
+  a.process(b);
+  g_allocs = 0; g_count = true;
+  for (int i = 0; i < 200; ++i) {
+    b.firstSample = (uint64_t)i * 480; b.captureNs = ns(b.firstSample, 48000);
+    if (i == 100) b.flags |= AF_Discontinuity; else b.flags = AF_TimestampValid;
+    a.process(b);
+    (void)a.snapshot(b.captureNs);
+  }
+  g_count = false;
+  CHECK(g_allocs.load() == 0);
 }
 
 int main() { return ss_test::runAll(); }

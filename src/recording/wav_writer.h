@@ -40,6 +40,7 @@ class WavWriter {
   uint64_t totalFrames() const { return total_; }          // accepted into files (declared in headers once patched)
   uint64_t durableFrames() const { return durable_; }      // frames covered by the last header patch + flush
   uint64_t clampedSamples() const { return clamped_; }
+  uint64_t bytesWritten() const { uint64_t t = 0; for (auto& x : segs_) if (x.complete) t += x.bytes; return t + (sink_ ? sink_->size() : 0); }
   bool failed() const { return failed_; }
   Status lastError() const { return err_; }
   // First session sample index that was NOT fully written after a failure (valid when failed()).

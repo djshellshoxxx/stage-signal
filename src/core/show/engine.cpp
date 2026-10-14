@@ -469,6 +469,9 @@ ActionResult ShowEngine::submit(const Action& a, Ns now) {
   evt_ = now;
   uint64_t before = rev_;
   ActionResult r = submitInner(a);
+  bool tempoWas = effTempo_.valid;
+  mergeFeatures();
+  if (tempoWas != effTempo_.valid) dirty_ = true;
   commit();
   r.revision = rev_;
   if (r.accepted && r.reason.empty() && rev_ == before) r.reason = "no change";
