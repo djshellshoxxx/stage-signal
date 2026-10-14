@@ -5,6 +5,7 @@ void PacketQueue::setOpen(bool o) { std::lock_guard<std::mutex> l(m_); open_ = o
 void PacketQueue::requireKeyframe(bool on) { std::lock_guard<std::mutex> l(m_); needKey_ = on; }
 bool PacketQueue::needsKeyframe() const { std::lock_guard<std::mutex> l(m_); return needKey_; }
 void PacketQueue::clear() { std::lock_guard<std::mutex> l(m_); q_.clear(); bytes_ = 0; }
+void PacketQueue::reset() { std::lock_guard<std::mutex> l(m_); q_.clear(); bytes_ = 0; st_ = PacketQueueStats(); open_ = true; needKey_ = false; }
 void PacketQueue::popFront() { std::lock_guard<std::mutex> l(m_); if (q_.empty()) return; bytes_ -= q_.front()->data.size(); q_.pop_front(); }
 MediaPacketPtr PacketQueue::peek() { std::lock_guard<std::mutex> l(m_); return q_.empty() ? MediaPacketPtr() : q_.front(); }
 PacketQueueStats PacketQueue::stats() const { std::lock_guard<std::mutex> l(m_); PacketQueueStats s = st_; s.depth = q_.size(); s.bytes = bytes_; return s; }

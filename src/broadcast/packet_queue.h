@@ -16,6 +16,7 @@ class PacketQueue {
   MediaPacketPtr peek();                         // oldest, not removed
   void popFront();
   void clear();
+  void reset();                                  // clear + zero stats + reopen (new session)
   void requireKeyframe(bool on);                 // discard Video packets until a key frame arrives (after reconnect)
   PacketQueueStats stats() const;
   bool needsKeyframe() const;

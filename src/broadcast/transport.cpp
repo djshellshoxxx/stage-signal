@@ -39,8 +39,6 @@ void FaultyTransport::close() { std::lock_guard<std::mutex> l(m); isClosed = tru
 void FaultyTransport::fire() {
   std::deque<TransportEvent> evs; std::function<void(const TransportEvent&)> cb;
   { std::lock_guard<std::mutex> l(m); evs.swap(deferred); cb = cb_; }
-  // a closed transport has cb_ == null: late deliveries are simply lost here; tests that want to prove the SESSION ignores
-  // stale callbacks keep their own copy of the callback via lateCallback().
   if (cb) for (auto& e : evs) cb(e);
 }
 void FaultyTransport::breakLink(TransportErrorClass c, const std::string& d) {
@@ -64,7 +62,7 @@ Status TransportFactory::create(const BroadcastSettings& s, std::unique_ptr<ITra
   if (workers_[(int)p]) { out = workers_[(int)p](); if (out) return Status::Ok(); return Status::Fail(Err::UnsupportedCapability, "media worker factory returned no transport"); }
   if (p == BroadcastProtocol::RTP) {
     if (!sock_) return Status::Fail(Err::UnsupportedCapability, unsupportedReason(p));
-    out = makeRtpTransport(sock_, &systemClock(), 0); return Status::Ok();
+    out = makeRtpTransport(sock_, clock_ ? clock_ : &systemClock(), 0); return Status::Ok();
   }
   return Status::Fail(Err::UnsupportedCapability, unsupportedReason(p), false);
 }

@@ -95,10 +95,11 @@ class TransportFactory {
   void setUdpSocketFactory(MakeSocket f) { sock_ = std::move(f); }
   // Test hook: force a specific transport (e.g. FaultyTransport) for any protocol.
   void setTestOverride(MakeTransport f) { override_ = std::move(f); }
+  void setClock(IClock* c) { clock_ = c; }       // clock used by the RTP sender (RTCP NTP mapping); default systemClock()
   Status create(const BroadcastSettings& s, std::unique_ptr<ITransport>& out) const;
   static std::string unsupportedReason(BroadcastProtocol p);
  private:
-  MakeTransport workers_[4]; MakeSocket sock_; MakeTransport override_;
+  MakeTransport workers_[4]; MakeSocket sock_; MakeTransport override_; IClock* clock_ = nullptr;
 };
 
 } // namespace ss

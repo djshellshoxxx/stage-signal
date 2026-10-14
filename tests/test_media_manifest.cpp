@@ -1,5 +1,6 @@
 // MOD-07 asset manifest + own SHA-256 (REQ-S15, T-LICENSE).
 #include "media_test_util.h"
+#include <algorithm>
 #include "media/asset_manifest.h"
 #include "media/sha256.h"
 #include "media/placeholder.h"
@@ -157,7 +158,9 @@ TEST(bundled_assets_manifest_verifies) {
   bool card = false, ph = false, gif = false;
   for (auto& e : m.assets) {
     CHECK(e.license == "CC0-1.0" && e.creator == "Circuit Drift Labs" && e.provenanceKind == "original" && e.sha256Original == e.sha256Distributed && isHex64(e.sha256Distributed));
-    if (e.id == "cdl.testcard.320x240") card = true; if (e.id == "cdl.placeholder.missing-media.320x240") ph = true; if (e.id == "cdl.loop.dot.64x48") gif = true;
+    if (e.id == "cdl.testcard.320x240") card = true;
+    if (e.id == "cdl.placeholder.missing-media.320x240") ph = true;
+    if (e.id == "cdl.loop.dot.64x48") gif = true;
   }
   CHECK(card && ph && gif);
   CHECK(m.decoders.empty());                                                                               // honest: no decoder bundled/enabled
@@ -168,7 +171,7 @@ TEST(bundled_assets_manifest_verifies) {
   DecodedGif g; CHECK(validateAndDecodeGifFile("assets/loop_dot_64x48.gif", limitsFor(Tier::Base), g).ok() && g.frameCount == 12 && g.loopCount == 0 && g.totalMs() == 960);
   // tampering with a copy of the shipped set is caught
   std::string copy = mt::tmpDir("tamper"); for (auto& e : std::filesystem::directory_iterator("assets")) std::filesystem::copy_file(e.path(), copy + "/" + e.path().filename().string());
-  CHECK(verifyManifest(copy).ok());
+  CHECK(verifyManifest(copy).ok);
   std::vector<uint8_t> t; readFileBounded(copy + "/testcard_320x240.png", 1 << 20, t); t[t.size() - 20] ^= 0x10; mt::writeFile(copy + "/testcard_320x240.png", t);
   ManifestReport rt = verifyManifest(copy); CHECK(!rt.ok && hasFor(rt, "checksum-mismatch", "cdl.testcard.320x240"));
 }
