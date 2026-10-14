@@ -18,6 +18,10 @@
 #pragma once
 #include "core/app/app_types.h"
 #include "core/app/output_router.h"
+#include "midi/output.h"
+#include "midi/router.h"
+#include "perf/admission.h"
+#include "render/render_state.h"
 #include "persistence/bundle.h"
 #include "persistence/show_io.h"
 #include "perf/benchmark.h"
@@ -167,8 +171,8 @@ class AppController {
   Status exportSupportBundle(const std::string& dest, const std::set<std::string>& approved, BundleReport* rep = nullptr);
   std::vector<BundleCategory> supportBundlePreview();
 
+ struct Impl;                                       // opaque implementation (public only so internal helpers can name it)
  private:
-  struct Impl;
   std::shared_ptr<Impl> p_;
 };
 

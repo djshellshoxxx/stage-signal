@@ -58,6 +58,7 @@ AppController::Impl::Impl(const AppConfig& c, const AppDeps& dd)
   }
   adapt.setLocked(cfg.qualityLocked);
   adapt.setEventCallback([this](const AdaptationEvent& e) {
+    { std::lock_guard<std::mutex> l(diagMu); adaptHistory.push_back({e.t, std::string(adaptEventKindName(e.kind)) + " level=" + std::to_string(e.level) + " step=" + adaptStepName(e.step) + " " + e.reason}); if (adaptHistory.size() > 200) adaptHistory.erase(adaptHistory.begin()); }
     jrec(JournalKind::Adaptation, adaptEventKindName(e.kind), std::string(adaptStepName(e.step)) + ": " + e.reason, e.level);
     logInfo("adaptation", std::string(adaptEventKindName(e.kind)) + " level=" + std::to_string(e.level) + " step=" + adaptStepName(e.step) + " " + e.reason);
   });
@@ -297,7 +298,8 @@ ShutdownReport AppController::Impl::shutdown() {
     while (actQ.pop(t)) { if (t.cancel) t.cancel("controller is shutting down"); }
     stopIo = true; { std::lock_guard<std::mutex> l(ioMu); } ioCv.notify_all();
     if (!joinWithin(thIo, exIo, T)) { ok = false; to = true; dt += "; io thread did not exit"; }
-    if (cfg.manualPump) { while (ioStep()) {} }
+    while (ioStep()) {}
+    if (thBench.joinable() && !joinWithin(thBench, exBench, T)) { ok = false; to = true; dt += "; benchmark thread did not exit"; }
   });
   // 7. destroy worker resources
   runStage(rep, "destroy_workers", T, [&](bool&, bool&, std::string&) {
@@ -351,6 +353,14 @@ void AppController::Impl::submitAction(const Action& a, AckCallback ack) {
   bool ok = isCriticalAction(a.id) ? critQ.push(t) : actQ.push(t);
   if (!ok) { ++actRejectedFull; reject("action queue full"); return; }
   wake();
+}
+
+bool AppController::Impl::pushTask(std::function<void(Ns)> run, std::function<void(const std::string&)> cancel) {
+  if (stopping.load() || stopControl.load()) return false;
+  Task t; t.enq = clk->nowNs(); t.run = std::move(run); t.cancel = std::move(cancel);
+  if (!actQ.push(t)) { ++actRejectedFull; return false; }
+  wake();
+  return true;
 }
 
 std::future<Status> AppController::Impl::postStatus(std::function<Status(Ns)> fn) {
@@ -572,7 +582,7 @@ void AppController::Impl::housekeeping(Ns now) {
     else if (bs.state == BroadcastState::Reconnecting) setWarning("broadcast", "Broadcast reconnecting (attempt " + std::to_string(bs.attempt) + "); local recording continues.", false);
     else clearWarning("broadcast");
   }
-  { std::vector<std::string> miss; { std::lock_guard<std::mutex> l(mediaMu); for (auto& kv : handles) if (kv.second->state() == media::MediaHandle::State::Failed) miss.push_back(kv.first); }
+  { std::vector<std::string> miss; { std::lock_guard<std::mutex> l(mediaMu); for (auto& kv : handles) if (kv.second.h && kv.second.h->state() == media::MediaHandle::State::Failed) miss.push_back(kv.first); }
     if (!miss.empty()) setWarning("media", std::to_string(miss.size()) + " media asset(s) missing or invalid: a placeholder is shown.", false); else clearWarning("media"); }
   { std::string mj = table.toJson(); if (lastMidiJson.empty()) lastMidiJson = mj; else if (mj != lastMidiJson) { lastMidiJson = mj; docDirty = true; if (dirtySince < 0) dirtySince = now; } }
   // autosave (show JSON only, via the io thread)
@@ -623,6 +633,7 @@ void AppController::pump() {
   Ns now = I.clk->nowNs();
   I.analysisStep(64);
   I.controlStep(now);
+  if (I.mout) I.mout->step();
   I.ioStep();
   I.renderStep(I.clk->nowNs());
   I.lightingStep(I.clk->nowNs());

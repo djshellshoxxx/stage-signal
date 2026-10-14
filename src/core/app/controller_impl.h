@@ -137,6 +137,9 @@ struct AppController::Impl {
   void controlStep(Ns now);
   void submitAction(const Action& a, AckCallback ack);
   std::future<Status> postStatus(std::function<Status(Ns)> fn);
+  bool pushTask(std::function<void(Ns)> run, std::function<void(const std::string&)> cancel);   // false: queue full / shutting down
+  std::thread thBench; std::atomic<bool> exBench{true};
+  std::string lastBenchJson; std::mutex benchMu;
   ActionResult routeAction(const Action& a, Ns now);
   void publishView(Ns now);
   Status adoptDocument(const show::ShowDocument& doc, bool recovery, bool markDirty);
@@ -174,7 +177,7 @@ struct AppController::Impl {
   std::shared_ptr<FrameBox> boxFor(const std::string& id);
   std::map<std::string, OutSlot> slots; uint64_t slotsGen = ~0ull;      // render thread only
   std::unique_ptr<Renderer> previewR; SceneClocks previewClocks; std::vector<std::shared_ptr<Frame>> previewPool;
-  Ns nextRender = 0, nextPreview = 0, showStartNs = 0; bool renderInit = false;
+  Ns nextRender = 0, nextPreview = 0, showStartNs = 0; bool renderInit = false; uint64_t lastDocGen = ~0ull;
   std::string curMediaRef; Ns curMediaStart = 0;
   std::mutex progMu; std::string programOutput;
   std::atomic<int> qLevel{0}, sceneFpsX100{2500}, previewFpsX100{1000}, scaleX1000{1000}; std::atomic<bool> trailsReduced{false};
@@ -197,7 +200,8 @@ struct AppController::Impl {
 
   // ---- media
   std::unique_ptr<media::MediaManager> mediaMgr; media::DecoderRegistry decoders;
-  std::mutex mediaMu; std::map<std::string, media::MediaHandlePtr> handles;
+  struct HandleEntry { media::MediaHandlePtr h; Ns tried = 0; };
+  std::mutex mediaMu; std::map<std::string, HandleEntry> handles;
   media::MediaHandlePtr handleFor(const std::string& hash);
   void registerMedia(const show::ShowDocument& doc);
 
