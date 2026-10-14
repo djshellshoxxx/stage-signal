@@ -53,20 +53,22 @@ TEST(rtp_mjpeg_golden_and_fragmentation) {
                      "0000" "0080";                  // MBZ, precision 0, length 128
   std::vector<uint8_t> tb(ji.qtables); std::string tbl = hex(tb);
   CHECK(hex(one[0]) == want + tbl + hex(scan));
-  // fragmentation: tiny payload budget forces several packets; offsets are contiguous, M only on the last, tables only in the first
-  uint16_t s2 = 100; auto many = rtp::packetizeJpeg(ji, jpg.data(), 777, 5, s2, 8 + 4 + 128 + 4);
-  CHECK(many.size() == 3);                                            // 4 + 4 + 3 scan bytes
-  size_t off = 0, total = 0; for (size_t i = 0; i < many.size(); ++i) {
+  // fragmentation: a small payload budget forces several packets; offsets are contiguous, M only on the last, tables only in the first
+  std::vector<uint8_t> big(300); for (size_t i = 0; i < big.size(); ++i) big[i] = (uint8_t)(i * 7 + 3);
+  auto jbig = miniJpeg(big); rtp::JpegInfo jb; CHECK(rtp::parseJpeg(jbig.data(), jbig.size(), jb).ok());
+  uint16_t s2 = 100; auto many = rtp::packetizeJpeg(jb, jbig.data(), 777, 5, s2, 190);
+  CHECK(many.size() == 3);                                            // 50 (after tables) + 182 + 68 scan bytes
+  size_t off = 0, total = 0; std::vector<uint8_t> re;
+  for (size_t i = 0; i < many.size(); ++i) {
     const auto& p = many[i]; size_t o = (p[13] << 16) | (p[14] << 8) | p[15]; CHECK(o == off);
     bool last = i + 1 == many.size(); CHECK(((p[1] & 0x80) != 0) == last); CHECK((p[1] & 0x7f) == 26);
     CHECK(p[16] == 1 && p[17] == 255 && p[18] == 2 && p[19] == 2);
-    size_t hdr = 20 + (i == 0 ? 4 + 128 : 0); total += p.size() - hdr; off += p.size() - hdr;
-    CHECK(p.size() <= 12 + 8 + 4 + 128 + 4);
+    size_t hdr = 20 + (i == 0 ? 4 + 128 : 0); total += p.size() - hdr; off += p.size() - hdr; re.insert(re.end(), p.begin() + hdr, p.end());
+    CHECK(p.size() <= 12 + 190);
     CHECK((((uint32_t)p[2] << 8) | p[3]) == (uint32_t)(100 + i));
   }
-  CHECK(total == scan.size());
-  // reassembled scan equals original, bit exact
-  std::vector<uint8_t> re; for (size_t i = 0; i < many.size(); ++i) { size_t hdr = 20 + (i == 0 ? 132 : 0); re.insert(re.end(), many[i].begin() + hdr, many[i].end()); } CHECK(re == scan);
+  CHECK(total == big.size()); CHECK(re == big);                       // reassembled scan equals the original, bit exact
+  CHECK(many[0].size() == 12 + 190 && many[1].size() == 12 + 190);
   // unsupported shapes are refused honestly
   auto j444 = miniJpeg(scan, 16, 16, 0x11); CHECK(rtp::parseJpeg(j444.data(), j444.size(), ji).code == Err::UnsupportedCapability);
   auto odd = miniJpeg(scan, 20, 16); CHECK(rtp::parseJpeg(odd.data(), odd.size(), ji).code == Err::UnsupportedCapability);

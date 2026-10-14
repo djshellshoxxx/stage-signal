@@ -300,4 +300,51 @@ TEST(sess_wav_write_error_before_segment_roll_keeps_prior_segments) {
   CHECK(has(st.warnings, "metadata") || true);
 }
 
+
+// Fake high-rate "MJPEG" encoder (valid container payload, 200 kB/frame) to exercise the estimated-time-remaining warning above 2 GiB.
+struct BigEnc : IVideoEncoder {
+  Status open(const VideoProfile&) override { return Status::Ok(); }
+  Status encode(const Frame&, Ns pts, EncodedPacket& o, bool& h) override { o.pts = pts; o.key = true; o.data.assign(200000, 0x55); h = true; return Status::Ok(); }
+  void close() override {} Ns delayNs() const override { return 0; } std::string name() const override { return "big-fake"; } VideoCodec codec() const override { return VideoCodec::MJPEG; }
+};
+TEST(sess_disk_warning_on_estimated_ten_minutes_even_above_2gib) {
+  for (int pass = 0; pass < 2; ++pass) {
+    Rig r; r.reg.add(VideoCodec::MJPEG, "big", [] { return std::unique_ptr<IVideoEncoder>(new BigEnc()); }, true);
+    auto q = r.req(RecContainer::Mkv); q.profile.driftCorrection = false; q.profile.segmentNs = 3600 * kNsPerSec; q.profile.video.fpsNum = 25; q.profile.segmentBytes = 3ull << 30;
+    r.disk.free = 100ull << 30; CHECK(r.s->start(q).ok());
+    int fi = 0;
+    for (int i = 0; i < 600; ++i) {                          // 6 s: 25 fps x 200 kB = ~5 MB/s measured
+      r.clk.t = r.base + i * 10 * kNsPerMs; r.s->pushAudio(blk(i * 480ull, 480, r.base)); r.s->pump();
+      if (i % 4 == 0) { auto f = std::make_shared<Frame>(); f->resize(64, 48); f->pts = r.base + i * 10 * kNsPerMs; r.s->pushVideo(f); r.s->pump(); ++fi; }
+    }
+    auto st = r.s->status(); CHECK(st.disk.rateMeasured); CHECK(st.disk.bytesPerSec > 3.5e6 && st.disk.bytesPerSec < 7e6);
+    CHECK(!st.disk.warning);
+    r.disk.free = pass ? (4ull << 30) : (3ull << 30) - (100ull << 20);                 // pass 0: ~9 min left (< 10), pass 1: ~12.5 min left
+    r.feed(600, 25); st = r.s->status();
+    CHECK(st.disk.freeBytes > (2ull << 30));                                          // the 2 GiB rule alone would NOT fire
+    CHECK(st.disk.warning == (pass == 0));
+    CHECK(st.disk.remainingSecLow <= st.disk.remainingSec && st.disk.remainingSec <= st.disk.remainingSecHigh);
+    r.s->stop();
+  }
+}
+
+TEST(sess_crash_mid_av_recording_recovers_from_journal) {
+  Rig r; auto q = r.req(RecContainer::Avi); q.profile.segmentNs = 600 * kNsPerSec; q.profile.driftCorrection = false;
+  CHECK(r.s->start(q).ok());
+  for (int i = 0; i < 200; ++i) {
+    r.clk.t = r.base + i * 10 * kNsPerMs; r.s->pushAudio(blk(i * 480ull, 480, r.base)); r.s->pump();
+    if (i % 4 == 0) { auto f = std::make_shared<Frame>(); f->resize(64, 48); for (auto& p : f->px) p = rgb(i, 90, 200 - i / 2); f->pts = r.base + i * 10 * kNsPerMs; r.s->pushVideo(f); r.s->pump(); }
+  }
+  // "crash": snapshot the files exactly as they are (no finalize), tear the tail, then recover from the journal alone
+  MemFileSystem snap; { std::lock_guard<std::mutex> l(r.fs.mu); for (auto& kv : r.fs.files) { snap.files[kv.first] = std::make_shared<MemFileSystem::File>(*kv.second); } }
+  auto st = r.s->status(); snap.chop(st.segments[0].path, 333);
+  auto items = recoverSession(snap, st.journalPath);
+  CHECK(items.size() == 1); CHECK(items[0].ok && items[0].repaired); CHECK(items[0].kind == "avi");
+  rec::Bytes b; snap.readAll(st.segments[0].path, b); Avi a = parseAvi(b); CHECK(a.ok); if (!a.ok) std::printf("   %s\n", a.err.c_str());
+  CHECK(a.frames.size() >= 40); for (auto& f : a.frames) CHECK(isJpeg(f));
+  CHECK(a.aFrames > 150 * 480ull);
+  auto again = recoverSession(snap, st.journalPath); CHECK(again[0].ok && !again[0].repaired);   // idempotent
+  r.s->stop();
+}
+
 int main() { return ss_test::runAll(); }

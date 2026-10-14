@@ -115,7 +115,8 @@ struct EbmlReader {
   const B& b; EbmlReader(const B& x) : b(x) {}
   bool id(size_t& p, uint32_t& v) const { if (p >= b.size()) return false; uint8_t f = b[p]; int len = f >= 0x80 ? 1 : f >= 0x40 ? 2 : f >= 0x20 ? 3 : f >= 0x10 ? 4 : 0; if (!len || p + len > b.size()) return false; v = 0; for (int i = 0; i < len; ++i) v = (v << 8) | b[p + i]; p += len; return true; }
   bool size(size_t& p, uint64_t& v, bool& unknown) const {
-    if (p >= b.size()) return false; uint8_t f = b[p]; int len = 1; while (len <= 8 && !(f & (0x80 >> (len - 1)))) ++len; if (len > 8 || p + len > b.size()) return false;
+    if (p >= b.size()) return false;
+    uint8_t f = b[p]; int len = 1; while (len <= 8 && !(f & (0x80 >> (len - 1)))) ++len; if (len > 8 || p + len > b.size()) return false;
     v = f & (0xFF >> len); bool allOnes = v == (uint64_t)(0xFF >> len); for (int i = 1; i < len; ++i) { v = (v << 8) | b[p + i]; if (b[p + i] != 0xFF) allOnes = false; }
     unknown = allOnes; p += len; return true; }
   uint64_t uintv(size_t p, size_t n) const { uint64_t v = 0; for (size_t i = 0; i < n; ++i) v = (v << 8) | b[p + i]; return v; }

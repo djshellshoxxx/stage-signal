@@ -43,7 +43,8 @@ struct Rig {
     clk.t = 100 * kNsPerSec; clk.wall = 1767225600000LL; secrets.put("key-main", kSecret); secrets.put("pass-srt", "srt-pass-phrase-123");
     factory.setTestOverride([this]() -> std::unique_ptr<ITransport> {
       std::shared_ptr<FaultyTransport> ft = capturing ? std::make_shared<CapturingTransport>() : std::make_shared<FaultyTransport>();
-      if (prepare) prepare(*ft); made.push_back(ft); return std::unique_ptr<ITransport>(new Proxy(ft)); });
+      if (prepare) { prepare(*ft); }
+      made.push_back(ft); return std::unique_ptr<ITransport>(new Proxy(ft)); });
     BroadcastDeps d; d.secrets = &secrets; d.clock = &clk; d.factory = &factory; d.log = [this](const std::string& l) { logs.push_back(l); }; d.requestKeyframe = [this] { ++keyframeReqs; }; d.rngSeed = 7;
     s.reset(new BroadcastSession(d)); s->setStateCallback([this](BroadcastState st) { states.push_back(st); });
   }
@@ -263,16 +264,19 @@ TEST(cast_packet_queue_bounded_and_gop_aware) {
   auto first = q.peek(); CHECK(first && first->kind == PacketKind::Video && first->key);        // stream stays decodable after drops
   // byte budget
   PacketQueueLimits l2; l2.maxPackets = 10000; l2.maxBytes = 50000; PacketQueue q2(l2);
-  for (int i = 0; i < 1000; ++i) q2.push(mk(PacketKind::Video, i % 10 == 0)); CHECK(q2.stats().bytes <= 50000);
+  for (int i = 0; i < 1000; ++i) { q2.push(mk(PacketKind::Video, i % 10 == 0)); }
+  CHECK(q2.stats().bytes <= 50000);
   // multiple consumers are independent
   PacketFanout fan; size_t a = fan.addConsumer("net", lim), b = fan.addConsumer("preview", lim);
   for (int i = 0; i < 30; ++i) fan.publish(mk(PacketKind::Video, i % 5 == 0));
   while (fan.consumer(a).peek()) fan.consumer(a).popFront();                                  // one consumer drains, the other stalls
   CHECK(fan.consumer(a).stats().depth == 0); CHECK(fan.consumer(b).stats().depth == 30);
-  for (int i = 0; i < 300; ++i) fan.publish(mk(PacketKind::Video, i % 5 == 0)); CHECK(fan.consumer(b).stats().depth <= 40); CHECK(fan.consumer(a).stats().depth <= 40);
+  for (int i = 0; i < 300; ++i) { fan.publish(mk(PacketKind::Video, i % 5 == 0)); }
+  CHECK(fan.consumer(b).stats().depth <= 40); CHECK(fan.consumer(a).stats().depth <= 40);
   // through the session with a stalled transport
   Rig r; r.prepare = [](FaultyTransport& t) { t.acceptLimit = 0; }; CHECK(r.start(r.settings()).ok()); r.step(20);
-  for (int i = 0; i < 5000; ++i) r.s->submit(r.pkt(PacketKind::Video, i % 30 == 0, 2000, i)); r.step(20);
+  for (int i = 0; i < 5000; ++i) { r.s->submit(r.pkt(PacketKind::Video, i % 30 == 0, 2000, i)); }
+  r.step(20);
   auto ss_ = r.s->status(); CHECK(ss_.queueDepth <= 512); CHECK(ss_.packetsDropped > 4000); CHECK(ss_.state == BroadcastState::Connecting);
   bool warned = false; for (auto& w : ss_.warnings) if (w.find("Upload cannot keep up") != std::string::npos) warned = true; CHECK(warned);
   r.s->stop();

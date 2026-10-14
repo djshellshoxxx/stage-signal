@@ -3,6 +3,7 @@
 #include "recording/sync.h"
 #include <cmath>
 using namespace ss;
+static const double kPi = 3.14159265358979323846;
 
 TEST(sync_rescale_timebases) {
   Rational ms{1, 1000}, ns{1, 1000000000}, ntsc{1001, 30000}, a48{1, 48000};
@@ -104,13 +105,13 @@ TEST(sync_resampler_is_smooth_and_bounded) {
   const double f = 1000.0; uint64_t n = 0; double maxStep = 0, peak = 0; float prev[2] = {0, 0}; bool havePrev = false;
   std::vector<float> in(960 * 2), out;
   for (int k = 0; k < 4000; ++k) {               // 80 s, device clock +150 ppm
-    for (int i = 0; i < 960; ++i) { float v = (float)std::sin(2 * M_PI * f * (double)(n + i) / 48000.0); in[i * 2] = v; in[i * 2 + 1] = -v; }
+    for (int i = 0; i < 960; ++i) { float v = (float)std::sin(2 * kPi * f * (double)(n + i) / 48000.0); in[i * 2] = v; in[i * 2 + 1] = -v; }
     Ns cap = (Ns)((double)n / (48000.0 * (1 + 150e-6)) * 1e9); n += 960;
     dc.process(in.data(), 960, cap, true, out);
     for (size_t i = 0; i + 1 < out.size(); i += 2) { if (havePrev && k > 200) maxStep = std::max(maxStep, (double)std::fabs(out[i] - prev[0])); prev[0] = out[i]; prev[1] = out[i + 1]; havePrev = true; if (k > 200) peak = std::max(peak, (double)std::fabs(out[i])); CHECK(out[i] == -out[i + 1] || std::fabs(out[i] + out[i + 1]) < 1e-4f); }
   }
   CHECK(peak > 0.995 && peak < 1.005);
-  CHECK(maxStep < 2 * M_PI * f / 48000.0 * 1.02);   // no clicks/discontinuities
+  CHECK(maxStep < 2 * kPi * f / 48000.0 * 1.02);   // no clicks/discontinuities
   CHECK_NEAR(dc.stats().appliedPpm, 150.0, 8.0);
   CHECK(dc.stats().inFrames > dc.stats().outFrames);   // dropped frames to follow a fast clock
 }
