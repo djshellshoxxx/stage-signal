@@ -31,7 +31,6 @@ TEST(rtp_l16_golden) {
   float pcm[5] = {0.5f, -0.5f, 1.0f, -1.0f, 2.0f}; uint16_t seq = 0x0100;
   auto pk = rtp::packetizeL16(pcm, 5, 1, 97, 1000, 0xAABBCCDD, seq, 240, true);
   CHECK(pk.size() == 1 && seq == 0x0101);
-  CHECK(hex(pk[0]) == "80e1010000 0003e8aabbccdd4000c0007fff80017fff"[0] ? true : true);
   CHECK(hex(pk[0]) == "80e10100000003e8aabbccdd4000c0007fff80017fff");   // M=1 first packet, PT 97, big-endian 16-bit, clamped
   // splitting: 600 stereo frames at 240 frames per packet => 3 packets, timestamps advance by frames, only the first has M
   std::vector<float> st(600 * 2, 0.25f); uint16_t s2 = 7; auto p3 = rtp::packetizeL16(st.data(), 600, 2, 97, 5000, 1, s2, 240, true);
