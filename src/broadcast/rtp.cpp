@@ -71,8 +71,8 @@ std::vector<Bytes> packetizeJpeg(const JpegInfo& j, const uint8_t* jpeg, uint32_
   return out;
 }
 
-std::vector<Bytes> packetizeL16(const float* pcm, size_t frames, uint32_t ch, uint8_t pt, uint32_t ts, uint32_t ssrc, uint16_t& seq, size_t maxPayload, bool firstMarker) {
-  std::vector<Bytes> out; size_t per = std::max<size_t>(1, maxPayload / (2 * ch)); size_t done = 0; bool first = firstMarker;
+std::vector<Bytes> packetizeL16(const float* pcm, size_t frames, uint32_t ch, uint8_t pt, uint32_t ts, uint32_t ssrc, uint16_t& seq, size_t maxFrames, bool firstMarker) {
+  std::vector<Bytes> out; size_t per = std::max<size_t>(1, maxFrames); size_t done = 0; bool first = firstMarker;
   while (done < frames) {
     size_t n = std::min(per, frames - done);
     Bytes pk = header(pt, first, seq++, ts + (uint32_t)done, ssrc); first = false;
@@ -84,6 +84,8 @@ std::vector<Bytes> packetizeL16(const float* pcm, size_t frames, uint32_t ch, ui
   }
   return out;
 }
+
+size_t l16FramesPerPacket(size_t maxPayload, uint32_t ch, uint32_t rate) { return std::max<size_t>(1, std::min<size_t>(maxPayload / (2 * ch), rate / 200)); }
 
 Bytes senderReport(uint32_t ssrc, uint32_t ntpSec, uint32_t ntpFrac, uint32_t rtpTs, uint32_t pkts, uint32_t octets, const std::string& cname) {
   Bytes b; b.push_back(0x80); b.push_back(200); p16(b, 6); p32(b, ssrc); p32(b, ntpSec); p32(b, ntpFrac); p32(b, rtpTs); p32(b, pkts); p32(b, octets);
@@ -139,7 +141,7 @@ Status RtpSender::sendAudioF32(Ns pts, const float* pcm, size_t frames) {
   if (!haveA_) { aFirstPts_ = pts; aSamples_ = 0; }
   uint32_t ts0 = aTsBase_ + (uint32_t)(ptsToSamples(aFirstPts_, c_.audioRate) + aSamples_);
   bool firstMarker = !haveA_;
-  for (auto& pk : rtp::packetizeL16(pcm, frames, c_.audioChannels, c_.audioPt, ts0, aSsrc_, aSeq_, c_.maxPayload, firstMarker)) {
+  for (auto& pk : rtp::packetizeL16(pcm, frames, c_.audioChannels, c_.audioPt, ts0, aSsrc_, aSeq_, rtp::l16FramesPerPacket(c_.maxPayload, c_.audioChannels, c_.audioRate), firstMarker)) {
     Status s = sendTo(c_.audioPort, pk); if (!s.ok()) return s;
     ++st_.audioPackets; ++aPk_; aOct_ += (uint32_t)(pk.size() - 12); st_.audioOctets += pk.size() - 12;
   }
@@ -185,7 +187,7 @@ std::string buildSdp(const BroadcastSettings& s, const RtpSenderConfig& c) {
   t += "a=x-dimensions:" + std::to_string(s.width) + "," + std::to_string(s.height) + "\r\n";
   t += "m=audio " + std::to_string(c.audioPort) + " RTP/AVP " + std::to_string((int)c.audioPt) + "\r\n";
   t += "a=rtpmap:" + std::to_string((int)c.audioPt) + " L16/" + std::to_string(c.audioRate) + "/" + std::to_string(c.audioChannels) + "\r\n";
-  t += "a=ptime:" + std::to_string((int)(1000.0 * (double)std::max<size_t>(1, c.maxPayload / (2 * c.audioChannels)) / c.audioRate + 0.5)) + "\r\n";
+  t += "a=ptime:" + std::to_string((int)(1000.0 * (double)rtp::l16FramesPerPacket(c.maxPayload, c.audioChannels, c.audioRate) / c.audioRate + 0.5)) + "\r\n";
   return t;
 }
 

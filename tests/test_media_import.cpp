@@ -1,4 +1,7 @@
 // MOD-07 import gate: paths, type gating, header probes, limits-before-allocation, stills, GIF, timing, crop.
+#if defined(__GNUC__)
+#pragma GCC diagnostic ignored "-Wmismatched-new-delete"
+#endif
 #include "media_test_util.h"
 #include "media/animation.h"
 #include "stb/stb_image.h"

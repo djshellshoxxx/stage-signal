@@ -34,8 +34,9 @@ struct JpegInfo { int type = 1; int width = 0, height = 0; Bytes qtables; size_t
 Status parseJpeg(const uint8_t* d, size_t n, JpegInfo& out);
 // One RTP packet per element; marker bit set on the last. Q=255 (tables in-band on the first fragment of every frame).
 std::vector<Bytes> packetizeJpeg(const JpegInfo& j, const uint8_t* jpeg, uint32_t ts, uint32_t ssrc, uint16_t& seq, size_t maxPayload);
-// L16 big-endian packets from float samples (clamped); each carries <= maxPayload bytes of audio.
-std::vector<Bytes> packetizeL16(const float* pcm, size_t frames, uint32_t channels, uint8_t pt, uint32_t ts, uint32_t ssrc, uint16_t& seq, size_t maxPayload, bool firstMarker);
+// L16 big-endian packets from float samples (clamped, round-half-away, +-32767); <= maxFramesPerPacket frames each.
+size_t l16FramesPerPacket(size_t maxPayload, uint32_t channels, uint32_t rate);   // min(payload budget, 5 ms) => a=ptime:5
+std::vector<Bytes> packetizeL16(const float* pcm, size_t frames, uint32_t channels, uint8_t pt, uint32_t ts, uint32_t ssrc, uint16_t& seq, size_t maxFramesPerPacket, bool firstMarker);
 // RTCP compound: SR (PT 200) + SDES(CNAME) (PT 202), RFC 3550 6.4.1 / 6.5.
 Bytes senderReport(uint32_t ssrc, uint32_t ntpSec, uint32_t ntpFrac, uint32_t rtpTs, uint32_t pktCount, uint32_t octetCount, const std::string& cname);
 void unixMsToNtp(int64_t unixMs, uint32_t& sec, uint32_t& frac);
