@@ -107,7 +107,7 @@ struct RecordingSession::Impl {
     }
     // folder
     std::string why;
-    if (!d.fs->writableDir(r.dir, why)) return Status::Fail(Err::PermissionDenied, "Recording folder is not writable: " + (why.empty() ? r.dir : why) + ". Pick another folder or fix its permissions.");
+    if (!d.fs->writableDir(r.dir, why)) return Status::Fail(Err::PermissionDenied, "Recording folder '" + r.dir + "' is not writable" + (why.empty() ? std::string() : " (" + why + ")") + ". Pick another folder or fix its permissions.");
     // space
     estBps = estimateBps(prof);
     uint64_t reserve = std::max<uint64_t>(kMinStopReserveBytes, (uint64_t)(estBps * 30));
@@ -251,6 +251,7 @@ struct RecordingSession::Impl {
   void failWrite(const Status& s, uint64_t lostFromSample, uint64_t pendingFrames) {   // REQ-R04
     if (dead.exchange(true)) return;
     accepting = false;
+    outFrames = lostFromSample;   // frames up to here did reach the files (partial writes included)
     haveLost = true; lostFrom = lostFromSample; lostEnd = std::max<uint64_t>(outFrames.load() + pendingFrames, lostFromSample); lostReason = std::string(errName(s.code)) + ": " + s.detail;
     snapshotLost();
     closing = true;
@@ -528,7 +529,11 @@ bool RecordingSession::pump() { return p_->d.manualPump ? p_->pump() : false; }
 Status RecordingSession::stop() {
   RecState s = state();
   if (s == RecState::Idle || s == RecState::Completed) return Status::Ok();
-  if (s == RecState::Failed || s == RecState::Recoverable) { if (p_->th.joinable()) p_->th.join(); std::lock_guard<std::mutex> l(p_->m); return p_->err; }
+  if (s == RecState::Failed || s == RecState::Recoverable) {
+    if (p_->th.joinable()) p_->th.join();
+    p_->sidecarBestEffort();                 // retry the metadata write (it may have failed on the full disk)
+    std::lock_guard<std::mutex> l(p_->m); return p_->err;
+  }
   if (s == RecState::Preparing) return Status::Fail(Err::InvalidArgument, "Session is still preparing.");
   if (s == RecState::Recording) p_->setState(RecState::Stopping);
   p_->accepting = false; p_->stopReq = true; p_->qcv.notify_all();

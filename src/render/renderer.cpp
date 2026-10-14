@@ -176,7 +176,7 @@ struct Renderer::Impl {
     int cut = clampi(q8(t.thresholdCutoff) * 255 >> 8, 0, 255);
     bool thr = t.threshold;
     // trails
-    int N = std::min(t.trailFrames, s.shed.trailFramesCap);
+    int N = std::min(std::min(t.trailFrames, 8), s.shed.trailFramesCap);   // bounded 2..8
     bool trail = N >= 2 && !(sm.dw < 1);
     int decay = 256;
     if (trail) {

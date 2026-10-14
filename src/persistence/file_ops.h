@@ -55,18 +55,21 @@ class FaultFileOps : public IFileOps {
   bool failFlush = false;
   // Only apply byte-crash to paths containing this substring (empty = all).
   std::string onlyPathContaining;
+  // Set after an injected crash: models a dead process - every later mutating call fails (no cleanup runs).
+  bool dead = false;
   int renames = 0; int64_t bytesWritten = 0; int opens = 0; std::vector<std::string> writtenPaths;
   Status openWrite(const std::string& path, std::unique_ptr<IWriteFile>& out) override;
   Status openRead(const std::string& path, std::unique_ptr<IReadFile>& out) override { return base_.openRead(path, out); }
   Status rename(const std::string& from, const std::string& to) override;
-  Status remove(const std::string& p) override { return base_.remove(p); }
-  Status removeAll(const std::string& p) override { return base_.removeAll(p); }
-  Status createDirs(const std::string& p) override { return base_.createDirs(p); }
-  Status createPrivateDir(const std::string& p) override { return base_.createPrivateDir(p); }
+  Status remove(const std::string& p) override { return dead ? deadStatus() : base_.remove(p); }
+  Status removeAll(const std::string& p) override { return dead ? deadStatus() : base_.removeAll(p); }
+  Status createDirs(const std::string& p) override { return dead ? deadStatus() : base_.createDirs(p); }
+  Status createPrivateDir(const std::string& p) override { return dead ? deadStatus() : base_.createPrivateDir(p); }
   bool exists(const std::string& p) override { return base_.exists(p); }
   bool isSymlink(const std::string& p) override { return base_.isSymlink(p); }
   Status listDir(const std::string& p, std::vector<std::string>& n) override { return base_.listDir(p, n); }
  private:
+  static Status deadStatus() { return Status::Fail(Err::InternalFault, "process crashed (injected)"); }
   IFileOps& base_;
 };
 

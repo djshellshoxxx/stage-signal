@@ -27,6 +27,7 @@ inline FeatureSnapshot feats(float lo, float mid, float hi, float onsetE, bool o
 inline RenderState sceneState(int scene, uint32_t seed, Ns t, const FeatureSnapshot& f) {
   RenderState s; s.a.scene = scene; s.a.params = defaultParams(scene); s.a.seed = seed; s.a.timeNs = t; s.elapsedNs = t; s.features = f; return s;
 }
+inline int irgb(int r, int g, int b) { return (r << 16) | (g << 8) | b; }
 inline int px(const Frame& f, int x, int y) { return (int)(f.px[(size_t)y * f.w + x] & 0xFFFFFF); }
 inline int ch(uint32_t c, int sh) { return (int)((c >> sh) & 255); }
 inline std::string hex64(uint64_t v) { char b[32]; std::snprintf(b, sizeof b, "%016llx", (unsigned long long)v); return b; }

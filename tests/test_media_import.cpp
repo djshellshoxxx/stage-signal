@@ -206,7 +206,7 @@ TEST(gif_disposal_and_transparency) {
     CHECK(mt::argbAt(g,2,0,0) == T && (mt::argbAt(g,2,1,1) >> 24) == 0);      // green patch disposed -> transparent
     CHECK(mt::argbAt(g,2,3,3) == B && mt::argbAt(g,2,3,0) == R);
   }
-  { // method 3 (restore previous) on the THIRD frame: this crashes upstream stbi_load_gif_from_memory (two_back bug)
+  { // method 3 (restore previous) on the SECOND frame, then more frames: upstream stbi_load_gif_from_memory crashes here (two_back bug)
     ss_gif::Spec s; s.w = 4; s.h = 4; s.palette = mt::pal4();
     s.frames = {mt::gframe(0,0,4,4,0,10,1), mt::gframe(0,0,2,2,1,10,3), mt::gframe(3,3,1,1,2,10,1), mt::gframe(1,1,2,2,3,10,1)};
     Status st = decodeGif(ss_gif::build(s), baseLim(), g); CHECK(st.ok());
@@ -245,9 +245,9 @@ TEST(gif_disposal_and_transparency) {
   }
 }
 
-TEST(gif_matches_stb_reference_when_no_disposal3) {
+TEST(gif_matches_stb_reference_when_no_disposal) {
   ss_gif::Spec s; s.w = 16; s.h = 12; s.palette = mt::pal4(); s.loop = 0;
-  for (int i = 0; i < 6; ++i) { auto f = mt::gframe(i, i, 6, 5, i % 4, 5 + i, (i % 2) ? 2 : 1, (i == 3) ? 2 : -1); s.frames.push_back(f); }
+  for (int i = 0; i < 6; ++i) { auto f = mt::gframe(i, i, 6, 5, i % 4, 5 + i, (i % 2) ? 0 : 1, (i == 3) ? 2 : -1); s.frames.push_back(f); }
   std::vector<uint8_t> b = ss_gif::build(s);
   int x, y, z, c; int* d = nullptr;
   unsigned char* ref = stbi_load_gif_from_memory(b.data(), (int)b.size(), &d, &x, &y, &z, &c, 4);

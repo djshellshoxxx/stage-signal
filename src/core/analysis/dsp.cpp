@@ -3,14 +3,18 @@
 namespace ss {
 namespace dsp {
 
-Fft::Fft(int n) : n_(n), rev_(n), wr_(n / 2), wi_(n / 2), re_(n, 0.f), im_(n, 0.f) {
+Fft::Fft(int n) : n_(n), rev_(n), re_(n, 0.f), im_(n, 0.f) {
   int bits = 0; while ((1 << bits) < n) ++bits;
   for (int i = 0; i < n; ++i) {
     int r = 0; for (int b = 0; b < bits; ++b) if (i & (1 << b)) r |= 1 << (bits - 1 - b);
     rev_[i] = r;
   }
   const double tp = 6.283185307179586476925286766559;
-  for (int k = 0; k < n / 2; ++k) { wr_[k] = (float)std::cos(tp * k / n); wi_[k] = (float)-std::sin(tp * k / n); }
+  for (int len = 16; len <= n; len <<= 1) {
+    const int half = len / 2;
+    for (int j = 0; j < half; ++j) tw_.push_back((float)std::cos(tp * j / len));
+    for (int j = 0; j < half; ++j) tw_.push_back((float)-std::sin(tp * j / len));
+  }
 }
 
 void Fft::run() {
@@ -26,19 +30,30 @@ void Fft::run() {
     ar = re[i + 1]; ai = im[i + 1]; br = im[i + 3]; bi = -re[i + 3];   // b*(-j) = (bi, -br)
     re[i + 1] = ar + br; im[i + 1] = ai + bi; re[i + 3] = ar - br; im[i + 3] = ai - bi;
   }
-  for (int len = 8; len <= n; len <<= 1) {
-    const int half = len >> 1, step = n / len;
+  const float c = 0.70710678118654752f;
+  for (int i = 0; i < n; i += 8) {                       // stage 3: w = 1, c(1-j), -j, -c(1+j)
+    float* r = re + i; float* m = im + i;
+    float tr, ti;
+    tr = r[4]; ti = m[4];                                 r[4] = r[0] - tr; m[4] = m[0] - ti; r[0] += tr; m[0] += ti;
+    tr = c * (r[5] + m[5]); ti = c * (m[5] - r[5]);       r[5] = r[1] - tr; m[5] = m[1] - ti; r[1] += tr; m[1] += ti;
+    tr = m[6]; ti = -r[6];                                r[6] = r[2] - tr; m[6] = m[2] - ti; r[2] += tr; m[2] += ti;
+    tr = c * (m[7] - r[7]); ti = -c * (r[7] + m[7]);      r[7] = r[3] - tr; m[7] = m[3] - ti; r[3] += tr; m[3] += ti;
+  }
+  const float* tw = tw_.data();                          // per-stage contiguous twiddles (len = 16, 32, ...)
+  for (int len = 16; len <= n; len <<= 1) {
+    const int half = len >> 1;
     for (int i = 0; i < n; i += len) {
-      for (int j = 0, t = 0; j < half; ++j, t += step) {
-        const float wr = wr_[t], wi = wi_[t];
-        float* ar = re + i + j; float* ai = im + i + j;
-        float* br = ar + half; float* bi = ai + half;
-        const float tr = *br * wr - *bi * wi;
-        const float ti = *br * wi + *bi * wr;
-        *br = *ar - tr; *bi = *ai - ti;
-        *ar += tr; *ai += ti;
+      float* ar = re + i; float* ai = im + i;
+      float* br = ar + half; float* bi = ai + half;
+      const float* wr = tw; const float* wi = tw + half;
+      for (int j = 0; j < half; ++j) {
+        const float tr = br[j] * wr[j] - bi[j] * wi[j];
+        const float ti = br[j] * wi[j] + bi[j] * wr[j];
+        br[j] = ar[j] - tr; bi[j] = ai[j] - ti;
+        ar[j] += tr; ai[j] += ti;
       }
     }
+    tw += len;
   }
 }
 

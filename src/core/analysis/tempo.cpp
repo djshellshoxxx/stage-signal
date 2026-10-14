@@ -1,8 +1,6 @@
 #include "core/analysis/tempo.h"
 #include <cmath>
 #include <algorithm>
-#include <cstdio>
-#include <cstdlib>
 
 namespace ss {
 namespace analysis {
@@ -111,7 +109,6 @@ bool TempoEstimator::update(double nowSec) {
     sc[cnt] = s; if (s > best) best = s;
   }
   if (best <= 0.05) { if (valid_) decay(); return false; }
-  if (getenv("TEMPO_DEBUG")) for (int i = 0; i < cnt; ++i) if (sc[i] > 0.3 * best) fprintf(stderr, "   L=%d s=%.3f acf=%.3f\n", firstL + i, sc[i], acf_[firstL + i]);
   int bestL = -1;
   for (int i = 0; i < cnt; ++i) if (sc[i] >= 0.8 * best) { bestL = firstL + i; break; }   // fastest near-tie
   if (bestL < 0) return false;
@@ -149,7 +146,6 @@ bool TempoEstimator::update(double nowSec) {
   while (bpm < kMinBpm) bpm *= 2;
   while (bpm > kMaxBpm) bpm /= 2;
   const float conf = (float)(rr[bi] * std::min(1.0, no / 8.0));
-  if (getenv("TEMPO_DEBUG")) fprintf(stderr, "tempo upd t=%.2f no=%d bestL=%d P0=%.4f bpm0=%.2f r=%.3f bi=%d bpm=%.2f best=%.3f\n", nowSec, no, bestL, P0, 60/P0, rr[bi], bi, bpm, best);
 
   if (conf < kValidConf) { if (valid_) decay(); return false; }
   if (!valid_) {

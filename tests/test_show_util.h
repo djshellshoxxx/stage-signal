@@ -6,6 +6,9 @@
 #include <string>
 #include <vector>
 
+#include <filesystem>
+#include <cstdlib>
+#include <unistd.h>
 namespace sst {
 using namespace ss;
 using namespace ss::show;
@@ -53,5 +56,16 @@ struct Rig {
     return v;
   }
   int count(const std::string& kind) const { int n = 0; for (const auto& j : journal) if (j.first == kind) ++n; return n; }
+};
+
+struct TmpDir {
+  std::filesystem::path p;
+  TmpDir() {
+    static int n = 0;
+    p = std::filesystem::temp_directory_path() / ("ss_persist_" + std::to_string((long)getpid()) + "_" + std::to_string(++n));
+    std::filesystem::remove_all(p); std::filesystem::create_directories(p);
+  }
+  ~TmpDir() { std::error_code ec; std::filesystem::remove_all(p, ec); }
+  std::string path(const std::string& rel = "") const { return rel.empty() ? p.string() : (p / rel).string(); }
 };
 } // namespace sst

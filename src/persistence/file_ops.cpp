@@ -137,6 +137,7 @@ struct FaultWrite : IWriteFile {
       if (keep) inner->write(d, keep);
       o->bytesWritten += (int64_t)keep;
       inner->flushAndClose();            // the partial bytes really reached the disk
+      o->dead = true;
       return Status::Fail(Err::InternalFault, "injected crash during write");
     }
     o->bytesWritten += (int64_t)n;
@@ -208,6 +209,7 @@ Status copyFile(IFileOps& ops, const std::string& from, const std::string& to) {
 }
 
 Status FaultFileOps::openWrite(const std::string& path, std::unique_ptr<IWriteFile>& out) {
+  if (dead) return deadStatus();
   ++opens; writtenPaths.push_back(path);
   std::unique_ptr<IWriteFile> inner;
   Status s = base_.openWrite(path, inner);
@@ -217,6 +219,7 @@ Status FaultFileOps::openWrite(const std::string& path, std::unique_ptr<IWriteFi
   return Status::Ok();
 }
 Status FaultFileOps::rename(const std::string& from, const std::string& to) {
+  if (dead) return deadStatus();
   ++renames;
   if (failRenameNth > 0 && renames == failRenameNth) return Status::Fail(Err::InternalFault, "injected rename failure");
   return base_.rename(from, to);

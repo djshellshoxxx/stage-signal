@@ -40,7 +40,7 @@ class Fft {
  private:
   int n_;
   std::vector<int> rev_;
-  std::vector<float> wr_, wi_, re_, im_;
+  std::vector<float> tw_, re_, im_;
 };
 
 // 15-tap half-band FIR decimate-by-2 (-6 dB at fs_in/4). push() returns true every 2nd sample.
@@ -49,16 +49,16 @@ class HalfBand {
   HalfBand();
   void reset();
   bool push(float x, float& y) {
-    pos_ = (pos_ + 1 >= 15) ? 0 : pos_ + 1;
-    buf_[pos_] = x; buf_[pos_ + 15] = x;
+    pos_ = (pos_ + 1) & 15;
+    buf_[pos_] = x; buf_[pos_ + 16] = x;
     phase_ ^= 1;
     if (phase_) return false;
-    const float* w = buf_ + pos_ + 1;            // w[14] newest
+    const float* w = buf_ + pos_ + 2;            // w[14] newest (ring of 16, window of 15)
     y = c_ * w[7] + h1_ * (w[6] + w[8]) + h3_ * (w[4] + w[10]) + h5_ * (w[2] + w[12]) + h7_ * (w[0] + w[14]);
     return true;
   }
  private:
-  float buf_[30];
+  float buf_[32];
   int pos_ = 0, phase_ = 0;
   float c_, h1_, h3_, h5_, h7_;
 };

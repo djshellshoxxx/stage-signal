@@ -1,4 +1,5 @@
 #include "perf/gates.h"
+#include <algorithm>
 #include <cstdio>
 
 namespace ss {
@@ -58,8 +59,9 @@ GateReport evaluateBaseGates(const MetricsSnapshot& m, const GateLimits& L, cons
     b.add("G15", "cpu p95 (1 s)", Verdict::Info, m.cpu.procP95, L.cpuP95MaxPct, "pct", "not the BASE fixture: informational only");
   }
   b.ge("G16", "available physical", m.mem.availPhysAvailable, (double)m.mem.availPhysMin / MiB, (double)L.availPhysMin / MiB, "MiB", "minimum observed");
-  if (m.mem.faultsAvailable) b.add("G17", "hard faults (paging)", Verdict::Info, m.mem.hardFaultsAvgPerSec, 0, "per_s", "sustained app-caused paging must be assessed by the qualifier");
-  else b.add("G17", "hard faults (paging)", Verdict::Unavailable, 0, 0, "per_s", "counter unavailable");
+  // Spec gives no numeric paging threshold ("avoid sustained app-caused paging"): always Info, but unavailability is stated explicitly.
+  if (m.mem.faultsAvailable) b.add("G17", "hard faults (paging)", Verdict::Info, m.mem.hardFaultsAvgPerSec, 0, "per_s", "no numeric limit in spec: qualifier must assess sustained app-caused paging");
+  else b.add("G17", "hard faults (paging)", Verdict::Info, 0, 0, "per_s", "counter UNAVAILABLE: paging not assessed");
   if (C.requireLatency) {
     b.le("G18", "ui ack p95", m.latencyMs[0].available, m.latencyMs[0].p95, L.uiAckP95MaxMs, "ms");
     b.le("G19", "scene response p95", m.latencyMs[1].available, m.latencyMs[1].p95, L.sceneResponseP95MaxMs, "ms");

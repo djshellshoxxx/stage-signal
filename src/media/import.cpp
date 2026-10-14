@@ -192,6 +192,7 @@ static Status probeBmp(const uint8_t* d, size_t n, ImageProbe& o) {
 namespace {
 struct GifScan {
   int w = 0, h = 0; uint32_t frames = 0; std::vector<int> delayCs; int loop = -1; bool transparent = false;
+  std::vector<SsGifFrameInfo> info;
 };
 Status skipSubBlocks(const uint8_t* d, size_t n, size_t& pos) {
   for (;;) {
@@ -211,7 +212,7 @@ Status scanGif(const uint8_t* d, size_t n, uint32_t maxFrames, GifScan& s) {
   size_t pos = 13;
   if (flags & 0x80) pos += 3u * (2u << (flags & 7));
   if (pos > n) return probeFail("truncated GIF color table");
-  int pendingCs = -1; bool sawTrailer = false;
+  int pendingCs = -1, pendingDisp = 0; bool sawTrailer = false;
   while (!sawTrailer) {
     if (pos >= n) return probeFail("truncated GIF (no trailer)");
     uint8_t tag = d[pos++];
@@ -220,7 +221,7 @@ Status scanGif(const uint8_t* d, size_t n, uint32_t maxFrames, GifScan& s) {
       if (pos >= n) return probeFail("truncated GIF");
       uint8_t label = d[pos++];
       if (label == 0xF9 && pos + 6 <= n && d[pos] == 4) {
-        pendingCs = (int)le16(d + pos + 2);
+        pendingCs = (int)le16(d + pos + 2); pendingDisp = (d[pos + 1] >> 2) & 7; if (pendingDisp > 3) pendingDisp = 0;
         if (d[pos + 1] & 1) s.transparent = true;
         pos += 5;
         if (pos >= n) return probeFail("truncated GIF");
@@ -249,7 +250,8 @@ Status scanGif(const uint8_t* d, size_t n, uint32_t maxFrames, GifScan& s) {
       Status st = skipSubBlocks(d, n, pos);
       if (!st.ok()) return st;
       if (s.frames >= maxFrames) return Status::Fail(Err::ResourceExhausted, "GIF frame count exceeds limit", true);
-      ++s.frames; s.delayCs.push_back(pendingCs < 0 ? 0 : pendingCs); pendingCs = -1;
+      ++s.frames; s.delayCs.push_back(pendingCs < 0 ? 0 : pendingCs);
+      s.info.push_back(SsGifFrameInfo{(int)x, (int)y, (int)w, (int)h, pendingDisp}); pendingCs = -1; pendingDisp = 0;
       continue;
     }
     return probeFail("corrupt GIF block");
@@ -483,7 +485,8 @@ Status validateAndDecodeGif(const uint8_t* data, size_t n, const std::string& na
                           std::to_string(sc.w) + "x" + std::to_string(sc.h) + ")");
     std::vector<int> stbDelay(sc.frames, 0);
     int w = 0, h = 0;
-    rgba = ssGifDecode(data, (int)n, (int)sc.frames, stbDelay.data(), &w, &h);
+    rgba = ssGifDecode(data, (int)n, (int)sc.frames, sc.info.data(), sc.w, sc.h, stbDelay.data());
+    w = sc.w; h = sc.h;
     if (!rgba) return Status::Fail(Err::DecodeFailure, "GIF decode failed (corrupt or truncated)");
     if (w != sc.w || h != sc.h) { std::free(rgba); return Status::Fail(Err::DecodeFailure, "GIF size disagrees with header"); }
     size_t total = (size_t)w * h * sc.frames;

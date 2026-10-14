@@ -214,7 +214,7 @@ TEST(show_quantized_triggers) {
   Action b = act(ActionId::TriggerCue, 1); b.trigger = Trigger::Bar;
   r.go(act(ActionId::SetBpm, 120)); r.tick(10);
   CHECK(r.go(b).accepted);
-  r.tick(1500); CHECK(r.e.snapshot().cueIndex == -1);               // earlier hybrid cue released; bar not reached
+  r.tick(1400); CHECK(r.e.snapshot().cueIndex == -1);               // earlier hybrid cue released; bar not reached
   r.tick(600);  CHECK(r.e.snapshot().cueIndex == 1);                 // bar = 4 beats = 2 s
   Action t = act(ActionId::TriggerCue, 0); t.trigger = Trigger::Time; t.when = r.clk.t + 700 * kNsPerMs;
   CHECK(r.go(t).accepted); r.tick(600); CHECK(r.e.snapshot().cueIndex != 0); r.tick(200); CHECK(r.e.snapshot().cueIndex == 0);

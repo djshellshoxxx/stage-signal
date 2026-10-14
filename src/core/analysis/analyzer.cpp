@@ -34,7 +34,7 @@ struct Analyzer::Impl {
   // ---- decimation + band/flux frames
   dsp::HalfBand hb[2];
   dsp::Fft fft;
-  std::vector<float> win, ringL, ringR, prevL;
+  std::vector<float> win, ringL, ringR, prevL, pwr;
   int rpos = 0, hopCnt = 0, warm = 0; float dcX[2] = {0, 0}, dcY[2] = {0, 0};
   int kLoB, kMidB, kHiB, kMaxB;            // band edges (bin indices, [lo,hi) )
   float normPow;                           // converts summed channel power to mean-square units
@@ -67,7 +67,7 @@ struct Analyzer::Impl {
   Impl(uint32_t r, uint32_t c)
       : rate(r), ch(c), ach(c >= 2 ? 2 : 1), fft(kN),
         tempo((double)r / 256.0), key((double)r / 2.0) {
-    win.resize(kN); ringL.assign(kN, 0.f); ringR.assign(kN, 0.f); prevL.assign(kN / 2, 0.f);
+    win.resize(kN); ringL.assign(kN, 0.f); ringR.assign(kN, 0.f); prevL.assign(kN / 2, 0.f); pwr.assign(kN / 2 + 2, 0.f);
     const double tp = 6.283185307179586;
     double sw2 = 0;
     for (int j = 0; j < kN; ++j) { win[j] = (float)(0.5 - 0.5 * std::cos(tp * j / kN)); sw2 += (double)win[j] * win[j]; }
@@ -152,23 +152,29 @@ struct Analyzer::Impl {
       im[rev[j]] = ach > 1 ? ringR[idx] * w : 0.f;
     }
     fft.run();
-    double bp[3] = {0, 0, 0}; double total = 0;
-    float flux = 0; int nb = 0;
+    const float q = 0.5f * normPow;
+    float* pw = pwr.data();
+    for (int k = 1; k <= kMaxB; ++k) pw[k] = (re[k] * re[k] + im[k] * im[k] + re[kN - k] * re[kN - k] + im[kN - k] * im[kN - k]) * q;
+    // Band sums (DC bin excluded; bins below 30 Hz ignored); `total` gates near-silent frames.
+    float bp[3] = {0, 0, 0}; float total = 0;
+    for (int k = 1; k < kLoB; ++k) total += pw[k];
+    for (int k = kLoB; k < kMidB; ++k) bp[0] += pw[k];
+    for (int k = kMidB; k < kHiB; ++k) bp[1] += pw[k];
+    for (int k = kHiB; k <= kMaxB; ++k) bp[2] += pw[k];
+    total += bp[0] + bp[1] + bp[2];
+    // Positive spectral flux of log-magnitude over 2-bin groups (halves the log cost).
+    float flux = 0;
     const bool havePrev = warm >= kN / kHop + 1;    // analysis window fully refilled
-    for (int k = 1; k <= kMaxB; ++k) {
-      const float psum = 0.5f * (re[k] * re[k] + im[k] * im[k] + re[kN - k] * re[kN - k] + im[kN - k] * im[kN - k]);
-      const float pn = psum * normPow;
-      total += pn;
-      if (k < kLoB) {}                                  // below band start (DC bin excluded, <30 Hz)
-      else if (k < kMidB) bp[0] += pn;
-      else if (k < kHiB) bp[1] += pn;
-      else bp[2] += pn;
-      const float L = 0.5f * dsp::fastLog2(pn + kEps);
-      const float d = L - prevL[k];
+    const int ng = kMaxB / 2;
+    float* pl = prevL.data();
+    for (int g = 0; g < ng; ++g) {
+      const float L = 0.5f * dsp::fastLog2(0.5f * (pw[2 * g + 1] + pw[2 * g + 2]) + kEps);
+      const float d = L - pl[g];
       if (d > 0) flux += d;
-      prevL[k] = L; ++nb;
+      pl[g] = L;
     }
-    for (int b = 0; b < 3; ++b) bandP[b] = bp[b] >= bandP[b] ? bp[b] : std::max(bp[b], bandP[b] * bandRel);
+    const int nb = ng;
+    for (int b = 0; b < 3; ++b) bandP[b] = bp[b] >= bandP[b] ? bp[b] : std::max((double)bp[b], bandP[b] * bandRel);
     const float f = havePrev ? flux / (float)nb : 0.f;
     ++warm;
     onsetDetect(f, total);
@@ -230,9 +236,11 @@ struct Analyzer::Impl {
     if (n == 0) return;
     const float* s = b.samples.data();
     const size_t C = ch;
+    bool dirty = false;                                // cheap block pre-scan: x*0 is NaN for NaN/Inf, else 0
+    { float z = 0.f; const size_t tot = n * C; for (size_t i = 0; i < tot; ++i) z += s[i] * 0.0f; dirty = (z != 0.0f); }
     for (size_t i = 0; i < n; ++i) {
-      const float l = dsp::sanitize(s[i * C], cnt.sanitized);
-      const float r = ach > 1 ? dsp::sanitize(s[i * C + 1], cnt.sanitized) : 0.f;
+      const float l = dirty ? dsp::sanitize(s[i * C], cnt.sanitized) : s[i * C];
+      const float r = ach > 1 ? (dirty ? dsp::sanitize(s[i * C + 1], cnt.sanitized) : s[i * C + 1]) : 0.f;
       sampleLevels(l, r);
       if (++winCnt >= winLen) { winCnt = 0; finishWindow(); }
       float yl, yr = 0;

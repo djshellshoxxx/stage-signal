@@ -85,6 +85,12 @@ bool safeRelPath(const std::string& p) {
       std::string seg = p.substr(segStart, len);
       if (seg == "." || seg == "..") return false;
       if (seg.back() == '.' || seg.back() == ' ') return false;
+      {
+        std::string base = seg.substr(0, seg.find('.'));
+        for (auto& ch : base) ch = (char)tolower((unsigned char)ch);
+        if (base == "con" || base == "prn" || base == "aux" || base == "nul") return false;
+        if (base.size() == 4 && (base.compare(0, 3, "com") == 0 || base.compare(0, 3, "lpt") == 0) && base[3] >= '0' && base[3] <= '9') return false;
+      }
       segStart = i + 1;
     } else {
       unsigned char c = (unsigned char)p[i];

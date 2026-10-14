@@ -12,7 +12,7 @@ struct Sim {
   void run(double seconds, double cpu, double missFrac = 0, double enc = 0, double maxq = -1, bool cpuAvail = true) {
     Ns end = t + (Ns)(seconds * 1e9);
     while (t < end) {
-      eval += 10; miss += (uint64_t)(10 * missFrac + 1e-9);
+      eval += 100; miss += (uint64_t)(100 * missFrac + 0.5);
       PressureSample s; s.now = t; s.cpuAvailable = cpuAvail; s.processCpuPct = cpu; s.systemCpuPct = cpu - 5; s.deadlinesEvaluated = eval; s.deadlinesMissed = miss;
       s.encoderQueueFraction = enc; s.maxQueueFraction = maxq < 0 ? enc : maxq;
       int before = c.level(); c.update(s); if (c.level() != before) changes.push_back({nsToSec(t), c.level()});
@@ -59,7 +59,7 @@ TEST(adapt_missing_cpu_counter_never_triggers_cpu_pressure) {
   Sim s; s.run(30, 99, 0, 0, -1, false); CHECK(s.changes.empty());
 }
 TEST(adapt_hysteresis_and_restore_one_per_30s) {
-  Sim s; s.run(20, 95); CHECK(s.c.level() == 4);
+  Sim s; s.run(20.5, 95); CHECK(s.c.level() == 4);
   s.changes.clear(); double t0 = nsToSec(s.t);
   s.run(60, 75);                                                          // 65..85 band: neither shed nor restore
   CHECK(s.changes.empty() && s.c.level() == 4);
@@ -74,13 +74,13 @@ TEST(adapt_hysteresis_and_restore_one_per_30s) {
   (void)t0;
 }
 TEST(adapt_flapping_load_causes_no_oscillation) {
-  Sim s; s.run(10, 95); CHECK(s.c.level() == 2);
+  Sim s; s.run(10.5, 95); CHECK(s.c.level() == 2);
   s.changes.clear();
   for (int i = 0; i < 100; ++i) { s.run(2, 90); s.run(2, 40); }          // 2 s hot / 2 s cool: neither 5 s sustained pressure nor 30 s calm
   CHECK(s.changes.empty() && s.c.level() == 2);
 }
 TEST(adapt_restore_requires_misses_and_queues_calm_too) {
-  Sim s; s.run(10, 95); CHECK(s.c.level() == 2);
+  Sim s; s.run(10.5, 95); CHECK(s.c.level() == 2);
   s.run(100, 30, 0.02);  CHECK(s.c.level() == 2);                          // misses 2% >= 1%
   s.run(100, 30, 0, 0.3, 0.3); CHECK(s.c.level() == 2);                    // queue 30% >= 25%
   s.run(100, 30, 0, 0.1, 0.1); CHECK(s.c.level() == 0 || s.c.level() == 1);   // all calm: restoring
@@ -114,7 +114,7 @@ TEST(adapt_locked_quality_warns_rejects_never_changes) {
   CHECK(s.c.tryAddWork("second output"));
 }
 TEST(adapt_lock_freezes_current_level_both_ways) {
-  Sim s; s.run(15, 95); int lvl = s.c.level(); CHECK(lvl == 3);
+  Sim s; s.run(15.5, 95); int lvl = s.c.level(); CHECK(lvl == 3);
   s.c.setLocked(true); s.run(300, 20); CHECK(s.c.level() == lvl);          // no restore while locked
   s.run(60, 99); CHECK(s.c.level() == lvl);                                // no further shedding while locked
   s.c.setLocked(false); s.run(31, 20); CHECK(s.c.level() == lvl - 1);
