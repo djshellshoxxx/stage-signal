@@ -613,10 +613,12 @@ namespace fs = std::filesystem;
 int runCheck(const fs::path& manifest, const fs::path& root, const char* extra = "") {
     const std::string cmd = std::string("\"") + SS_ASSET_CHECK_EXE + "\" --manifest \"" + manifest.string() + "\" --root \"" +
                             root.string() + "\" " + extra + " >" + (fs::temp_directory_path() / "ss_asset_check.out").string() + " 2>&1";
-    const int rc = std::system(cmd.c_str());
 #ifdef _WIN32
+    // cmd.exe /c strips the outer quotes of a command that has several quoted tokens; wrap once more.
+    const int rc = std::system(("\"" + cmd + "\"").c_str());
     return rc;
 #else
+    const int rc = std::system(cmd.c_str());
     return (rc & 0x7F) == 0 ? ((rc >> 8) & 0xFF) : 255;
 #endif
 }
