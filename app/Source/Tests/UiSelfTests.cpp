@@ -5,9 +5,12 @@
 
 namespace ss::app {
 
-void registerUiSelfTests(SelfTestRegistry&) {
-    // ui-live:  registerUiLiveSelfTests(reg);
-    // ui-setup: registerUiSetupSelfTests(reg);
+void registerUiLiveSelfTests(SelfTestRegistry&);
+void registerUiSetupSelfTests(SelfTestRegistry&);
+
+void registerUiSelfTests(SelfTestRegistry& reg) {
+    registerUiLiveSelfTests(reg);   // ui-live
+    registerUiSetupSelfTests(reg);  // ui-setup
     // ui-other: registerUiOtherSelfTests(reg);
 }
 
