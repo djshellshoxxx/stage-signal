@@ -21,10 +21,10 @@ record (MOD-11 session logic), broadcast (MOD-12 session logic), doctor (Show Do
 
 The root `CMakeLists.txt` auto-discovers `core/*/CMakeLists.txt` and `tests/unit/*/CMakeLists.txt`.
 **Never edit root CMake, `core/base`, or another module's files** (open an issue note in your PR instead).
-A module may depend only on `base` and modules named in its `DEPS`. Allowed dependency edges:
-`audio,dynamics,midi,lighting,persist,security,diag,render,media,perf,router -> base`;
-`show -> base,audio`; `record -> base,dynamics`; `broadcast -> base,security`; `doctor -> base,perf,router`;
-`palette -> base,show`. Anything else needs a note in ARCHITECTURE.md from the integrator.
+Every module may depend on `base` (shared IF types, `ActionId` registry, Result, queues, clocks, Rng) and `model`
+(pure show-document data). Further allowed edges: `show -> audio`; `record -> dynamics`; `broadcast -> security`;
+`doctor -> perf,router,record,lighting`; `palette -> show`; `persist -> security`; `diag -> security`.
+Anything else needs a note in ARCHITECTURE.md from the integrator.
 
 ## Rules every module follows
 1. Real-time paths (audio DSP, render hot loops) allocate nothing after `prepare()`; no locks, no I/O.
