@@ -1,0 +1,16 @@
+# StageSignal specification addendum v0.2 (20 October 2026)
+
+Owner direction of 20 Oct 2026 changed the delivery shape of v0.1. Requirement IDs stay stable; these
+decisions supersede the matching v0.1 text. Decision records keep rationale and alternatives.
+
+| ID | Decision | Rationale / consequence |
+|---|---|---|
+| DEC-04 (rev) | UI/render/platform stack = **JUCE 8.0.16-security** over a portable JUCE-free C++17 core; CPU software raster is the baseline renderer, GPU optional | The owner's required deliverables (Windows standalone, macOS arm64 + x86_64, Linux, CLAP) cannot come from the wxWidgets+WASAPI Windows-only stack. JUCE supplies audio/MIDI/camera/display/UDP/GUI on all targets and the CLAP wrapper via clap-juce-extensions. Alternatives: wxWidgets+per-OS adapters (rejected: 3x adapter surface), SDL (no plugin story). |
+| DEC-05 (rev) | StageSignal source license = **AGPL-3.0-or-later** (JUCE AGPL option); portable core is also usable under permissive terms where its files say so | Public GitHub repo; AGPL is the JUCE option that needs no commercial license. A commercial JUCE license would be needed for closed redistribution. Owner to confirm; no legal approval is claimed. |
+| DEC-11 | Deliverables: standalone (Windows x64, macOS arm64, macOS x86_64, Linux x64) and **CLAP** (same four) | Spec section 1 non-goal "DAW plug-in formats" is withdrawn for CLAP only. In plugin mode the host audio feeds the analyzer and passes through unchanged; visuals open as separate windows. VST3/AU stay non-goals. |
+| DEC-03 (rev) | The 800 MHz / 512 MB BASE tier remains the **performance budget** the core and software renderer are written and benchmarked against, but Vista/XP-era operating systems are no longer claimed | JUCE 8 targets Windows 10 1607+. No physical 800 MHz fixture exists, so BASE stays "unqualified": the budgets and adaptive-quality logic are implemented and unit-tested, and the benchmark tool reports the real numbers. Owner decision needed if a legacy shell is wanted later; the JUCE-free core keeps that door open. |
+| DEC-12 | Dependencies: JUCE, clap-juce-extensions (+ CLAP SDK, clap-helpers), doctest (tests), nlohmann/json (core). RtMidi, wxWidgets, miniaudio, EtcPal/ETCLabs sACN are **not** used: MIDI/audio via JUCE; Art-Net and sACN packet builders are written in-tree against the published specs; FFmpeg is an optional external executable (LGPL, separate process) for encode/broadcast | Smaller surface, fewer licenses. FFmpeg is never linked or bundled. |
+| DEC-13 | Added features (owner delegated choice): Effects **Prism Mirror**, **Bloom Pulse**; usability **Undo/Redo + A/B scene snapshots**; musical **Energy Arc** (build/drop detection driving tiered scene choice and bar-quantised drop hits); value **Show Report** (HTML/CSV setlist + energy/BPM/key timeline); ease of use **Show Doctor** preflight + **Command Palette** (Ctrl+K) | See `docs/specs/` for each. They share the v0.1 safety rules (strobe lock, blackout precedence, no hidden transmission). |
+
+Open items that still need the owner: Q-01/Q-02 (physical legacy fixture), Q-03 (broadcast receivers, USB-DMX models),
+DEC-05 confirmation, code-signing budget, true-peak limiter qualification, key-detection corpus (DEC-10).
