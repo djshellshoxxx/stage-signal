@@ -12,7 +12,9 @@ struct LightingView {
     LightingUiState state = LightingUiState::Disarmed;
     bool transportConnected = false;
     bool blackout = false;
+    bool engineArmed = false;           // the core LightingEngine's own state (follows the scheduler gate)
     std::uint64_t ticks = 0, framesSent = 0, ticksHeldDisarmed = 0;
+    std::uint64_t datagramsReal = 0, datagramsMock = 0, faults = 0;   // real = left the process; mock = dry/preview only
     std::string note;           // sanitised; e.g. "Disarmed, press Arm"
 };
 
