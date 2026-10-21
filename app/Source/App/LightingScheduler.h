@@ -21,6 +21,29 @@
 
 namespace ss::app {
 
+// Beat-look modulation for lighting (FEAT-003 + key colour FEAT-002), packed into one atomic word by the shell.
+struct BeatLightCtx {
+    bool on = false;            // operator opt-in ("Beat pulse"); off by default
+    bool valid = false;         // beat grid anchored with a tempo
+    float value = 0.f;          // 0..1
+    std::int64_t cycle = 0;     // low 16 bits only
+    bool keyValid = false;
+    std::uint8_t r = 0, g = 0, b = 0;
+    static std::uint64_t pack(const BeatLightCtx& c) {
+        return std::uint64_t(static_cast<std::uint8_t>(c.value < 0.f ? 0.f : (c.value > 1.f ? 255.f : c.value * 255.f + 0.5f))) |
+               (std::uint64_t(c.valid) << 8) | (std::uint64_t(c.on) << 9) | (std::uint64_t(c.keyValid) << 10) |
+               (std::uint64_t(c.r) << 16) | (std::uint64_t(c.g) << 24) | (std::uint64_t(c.b) << 32) |
+               (std::uint64_t(static_cast<std::uint16_t>(c.cycle)) << 40);
+    }
+    static BeatLightCtx unpack(std::uint64_t w) {
+        BeatLightCtx c;
+        c.value = float(w & 255u) / 255.f; c.valid = (w >> 8) & 1u; c.on = (w >> 9) & 1u; c.keyValid = (w >> 10) & 1u;
+        c.r = std::uint8_t(w >> 16); c.g = std::uint8_t(w >> 24); c.b = std::uint8_t(w >> 32);
+        c.cycle = std::int64_t((w >> 40) & 0xffffu);
+        return c;
+    }
+};
+
 struct LightingTickContext {
     ss::Ns now = 0;
     bool armed = false;
@@ -28,6 +51,7 @@ struct LightingTickContext {
     ss::ShowSnapshotLite show;
     ss::FeatureSnapshot features;
     ss::lighting::IDatagramSink& sink;           // NullPacketSink while disarmed
+    BeatLightCtx beat;
 };
 
 // Drives one LightingEngine from LightingTickContext. All members except post()/stats are LIGHT-thread only.
@@ -38,6 +62,8 @@ public:
     LightingDriver(ss::lighting::IDatagramSink& real, Refused refused);
     void post(EngineJob job);                                       // any thread; applied at the start of the next tick
     void onTick(const LightingTickContext& ctx);
+    // Fixture ids the beat look drives (every patched fixture); LIGHT thread applies it at the next tick.
+    void setBeatFixtures(std::vector<std::uint32_t> ids);
     ss::lighting::EngineState engineState() const { return engineState_.load(); }
     std::uint64_t realDatagrams() const { return realDatagrams_.load(); }
     std::uint64_t mockDatagrams() const { return mockDatagrams_.load(); }
@@ -57,6 +83,7 @@ private:
     Refused refused_;
     std::mutex jobsMutex_;
     std::vector<EngineJob> jobs_;
+    std::vector<ss::lighting::FixtureLook> looks_;        // LIGHT thread only
     std::atomic<ss::lighting::EngineState> engineState_{ss::lighting::EngineState::Disarmed};
     std::atomic<std::uint64_t> realDatagrams_{0}, mockDatagrams_{0}, faults_{0};
 };
@@ -69,6 +96,8 @@ public:
                       const ss::LatestMailbox<ss::FeatureSnapshot>& features);
 
     void setTickHandler(TickHandler h);                 // any thread; applied at the next tick
+    BeatLightCtx beatLook() const { return BeatLightCtx::unpack(beat_.load(std::memory_order_relaxed)); }
+    void setBeatLook(const BeatLightCtx& c) { beat_.store(BeatLightCtx::pack(c), std::memory_order_relaxed); }
     void setRateHz(int hz) { rateHz_ = hz < 1 ? 1 : (hz > 40 ? 40 : hz); }   // 25 default, 40 max (spec 6.2)
     int rateHz() const { return rateHz_; }
 
@@ -89,6 +118,7 @@ private:
     const ss::LatestMailbox<ss::ShowSnapshotLite>& show_;
     const ss::LatestMailbox<ss::FeatureSnapshot>& features_;
     std::atomic<bool> armed_{false};
+    std::atomic<std::uint64_t> beat_{0};
     int rateHz_ = 25;
     std::mutex handlerMutex_;
     TickHandler handler_;

@@ -21,6 +21,7 @@ TEST_CASE("REQ-X02: default keyboard map matches the specification") {
     CHECK(action("Ctrl+K") == ActionId::OpenCommandPalette);
     CHECK(action("Ctrl+Z") == ActionId::Undo);
     CHECK(action("Ctrl+Y") == ActionId::Redo);
+    CHECK(action("T") == ActionId::TapTempo);
     for (int i = 1; i <= 8; ++i) {
         const Binding* b = km.lookup(C(std::to_string(i).c_str()));
         REQUIRE(b);
@@ -28,7 +29,7 @@ TEST_CASE("REQ-X02: default keyboard map matches the specification") {
         CHECK(b->value == i - 1);                       // pad 1 is slot 0
     }
     CHECK(km.lookup(C("9")) == nullptr);
-    CHECK(km.bindings().size() == 18);
+    CHECK(km.bindings().size() == 19);
     // recording and broadcast have no keyboard toggles: explicit Start/Stop live in the UI
     CHECK(km.bindingsFor(ActionId::StartRecording).empty());
     CHECK(km.bindingsFor(ActionId::StopBroadcast).empty());

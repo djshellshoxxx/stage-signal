@@ -120,19 +120,21 @@ public:
         theme_.setSelectedId(setup::appearance().theme == setup::ThemeChoice::HighContrast ? 2 : 1, juce::dontSendNotification);
         theme_.onChange = [this] {
             setup::appearance().theme = theme_.getSelectedId() == 2 ? setup::ThemeChoice::HighContrast : setup::ThemeChoice::Night;
+            savePref("ui.theme", theme_.getSelectedId() == 2 ? "contrast" : "night");
         };
         add(clean_, "setup.clean");
         clean_.setButtonText("Clean mode");
         clean_.setToggleState(setup::appearance().cleanMode, juce::dontSendNotification);
-        clean_.onClick = [this] { setup::appearance().cleanMode = clean_.getToggleState(); };
+        clean_.onClick = [this] { setup::appearance().cleanMode = clean_.getToggleState(); savePref("ui.clean", clean_.getToggleState() ? "1" : "0"); };
         add(reduce_, "setup.reduce");
         reduce_.setButtonText("Reduce motion");
         reduce_.setToggleState(setup::appearance().reduceMotion, juce::dontSendNotification);
-        reduce_.onClick = [this] { setup::appearance().reduceMotion = reduce_.getToggleState(); };
+        reduce_.onClick = [this] { setup::appearance().reduceMotion = reduce_.getToggleState(); savePref("ui.reduce", reduce_.getToggleState() ? "1" : "0"); };
         note(appearanceNote_);
-        appearanceNote_.setText("Appearance choices last for this session only.", juce::dontSendNotification);
+        appearanceNote_.setText("Appearance choices are saved on this computer.", juce::dontSendNotification);
 
         header(filesHead_, "Show files");
+        note(filesNote_);
         add(save_, "setup.file.save");
         save_.setButtonText("Save (Ctrl+S)");
         save_.onClick = [this] { sendAction(model_, ss::ActionId::SaveShow); };
@@ -157,7 +159,34 @@ public:
     juce::String notice() const { return notice_.getText(); }
     void setNotice(const juce::String& s) { notice_.setText(s, juce::dontSendNotification); }
 
+    void savePref(const char* key, const char* value) {
+        if (restoring_) return;
+        AppCommand c; c.kind = AppCommandKind::SetPref; c.text = key; c.text2 = value;
+        model_.postCommand(c);
+    }
+
+    // Appearance comes back from the saved preferences once, on the first snapshot that carries them.
+    void restorePrefs(const UiSnapshot& s) {
+        if (prefsRestored_ || s.prefs.empty()) return;
+        prefsRestored_ = true;
+        restoring_ = true;
+        for (const auto& kv : s.prefs) {
+            if (kv.first == "ui.theme") { setup::appearance().theme = kv.second == "contrast" ? setup::ThemeChoice::HighContrast : setup::ThemeChoice::Night; theme_.setSelectedId(kv.second == "contrast" ? 2 : 1, juce::sendNotification); }
+            else if (kv.first == "ui.clean") { setup::appearance().cleanMode = kv.second == "1"; clean_.setToggleState(kv.second == "1", juce::dontSendNotification); }
+            else if (kv.first == "ui.reduce") { setup::appearance().reduceMotion = kv.second == "1"; reduce_.setToggleState(kv.second == "1", juce::dontSendNotification); }
+        }
+        restoring_ = false;
+    }
+
     void apply(const UiSnapshot& s) {
+        restorePrefs(s);
+        if (s.showFile.freeBytesValid) {
+            const double gb = double(s.showFile.freeBytes) / (1024.0 * 1024.0 * 1024.0);
+            filesNote_.setText(juce::String(gb, 1) + " GB free where shows and recordings are saved." +
+                               (s.showFile.dirty ? " This show has unsaved changes." : "") +
+                               (s.showFile.autosaveNote.empty() ? "" : " " + juce::String(s.showFile.autosaveNote) + "."),
+                               juce::dontSendNotification);
+        }
         audioState_.setText(audioText(s), juce::dontSendNotification);
         strobe_.setToggleState(s.show.strobingDisabled, juce::dontSendNotification);
         strobeNote_.setText(s.show.strobingDisabled ? "Strobing is locked off." : "Strobing is allowed. Flash scenes can run.",
@@ -201,6 +230,7 @@ public:
         y += 6;
         head(filesHead_);
         row(kRowH, {{&save_, 150}, {&saveAs_, 150}, {&open_, 150}});
+        full(filesNote_, 22);
         y += 6;
         head(benchHead_);
         full(benchNote_, 22);
@@ -298,9 +328,10 @@ private:
     std::unique_ptr<juce::FileChooser> chooser_;
     int height_ = 0;
 
+    bool prefsRestored_ = false, restoring_ = false;
     juce::TextButton runWizard_;
     juce::Label audioHead_, audioState_, rateNote_, displayHead_, displayNote_, safetyHead_, strobeNote_,
-        appearanceHead_, appearanceNote_, filesHead_, benchHead_, benchNote_, notice_;
+        appearanceHead_, appearanceNote_, filesHead_, filesNote_, benchHead_, benchNote_, notice_;
     juce::ComboBox deviceType_, rate_, displayBox_, theme_;
     juce::TextEditor deviceName_;
     juce::TextButton applyDevice_, refreshDisplays_, identify_, save_, saveAs_, open_;

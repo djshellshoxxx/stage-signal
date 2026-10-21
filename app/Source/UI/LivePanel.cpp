@@ -3,6 +3,7 @@
 #include "UI/Live/Actions.h"
 #include "UI/Live/LiveFormat.h"
 #include "UI/Live/Shortcuts.h"
+#include "UI/Overlays/UndoSnapshotBar.h"
 
 namespace ss::app {
 
@@ -15,7 +16,7 @@ using live::ScenePad;
 // compact. The content is scrolled by the parent viewport only in compact layout.
 class LivePanel::Content final : public juce::Component, private juce::Slider::Listener {
 public:
-    explicit Content(UiModel& m) : model_(m), preview_(m) {
+    explicit Content(UiModel& m) : model_(m), preview_(m), bar_(m) {
         setComponentID("live.content");
         auto add = [this](juce::Component& c, const char* id) { c.setComponentID(id); addAndMakeVisible(c); };
         add(targetBox_, "live.target");
@@ -56,6 +57,12 @@ public:
         add(storeB_, "live.b.store");
         add(recallB_, "live.b.recall");
         add(notice_, "live.notice");
+        add(phrase_, "live.phrase");
+        add(swatch_, "live.key.swatch");
+        add(bar_, "live.edit.bar");
+        // The undo / A-B bar (with fade time) replaces the plain buttons; those stay as hidden controls so the
+        // ids and handlers remain valid for scripted tests.
+        for (auto* b : {&undo_, &redo_, &storeA_, &recallA_, &storeB_, &recallB_}) b->setVisible(false);
 
         setupText();
         setupButtons();
@@ -80,6 +87,8 @@ public:
         const auto& sh = s.show;
         syncTargets(s);
         syncTempo(s);
+        syncMusic(s);
+        syncPads(s);
         const bool blackout = sh.visualBlackout;
         mode(sh.mode);
         cueLabel_.setText(juce::String(live::cueText(sh.cueIndex, sh.cueCount)), juce::dontSendNotification);
@@ -275,6 +284,34 @@ private:
         }
     }
 
+    void syncMusic(const UiSnapshot& s) {
+        const auto& m = s.music;
+        std::string t;
+        if (m.phraseLocked) {
+            t = "Bar " + std::to_string(m.barInPhrase + 1) + " of " + std::to_string(m.phraseBars);
+            if (m.preDrop) t += ". Drop is next";
+            else if (m.phraseStart) t += ". New phrase";
+        } else {
+            t = "Phrase: not locked yet";
+        }
+        phrase_.setText(juce::String(t), juce::dontSendNotification);
+        swatch_.set(m.keyColorValid, juce::Colour(m.keyR, m.keyG, m.keyB));
+    }
+
+    void syncPads(const UiSnapshot& s) {
+        const auto& names = s.showFile.scenes;
+        const ss::show::OutputState* o = s.show.output(target_ == ss::kAllOutputs ? ss::kPrimaryOutput : target_);
+        for (int i = 0; i < 8; ++i) {
+            const std::size_t idx = static_cast<std::size_t>(s.show.bank) * 8 + static_cast<std::size_t>(i);
+            if (idx >= names.size()) { pads_[i]->setState(ScenePad::State::Unavailable, "Empty"); continue; }
+            const auto& sc = names[idx];
+            ScenePad::State st = ScenePad::State::Idle;
+            if (s.show.strobingDisabled && sc.strobe) st = ScenePad::State::Unavailable;
+            else if (o && o->hasScene && o->sceneId == sc.id) st = ScenePad::State::Active;
+            pads_[i]->setState(st, juce::String(sc.name));
+        }
+    }
+
     void syncTempo(const UiSnapshot& s) {
         const auto& f = s.features;
         const auto& sh = s.show;
@@ -317,11 +354,13 @@ private:
         const int leftW = 344, rightX = 360, rightW = std::max(432, width - rightX - 8);
         targetBox_.setBounds(8, 8, leftW, 32);
         preview_.setBounds(8, 44, leftW, 236);
-        tempoInfo_.setBounds(8, 284, leftW, 22);
+        tempoInfo_.setBounds(8, 284, leftW - 26, 22);
+        swatch_.setBounds(8 + leftW - 22, 285, 20, 20);
         auto tempo = juce::Rectangle<int>(8, 310, leftW, 44);
         uikit::placeRow(tempo, {{&tap_, 52}, {&nudgeDown_, 32}, {&bpm_, 84}, {&nudgeUp_, 32}, {&releaseBpm_, 64}, {&keyBox_, 0}});
         arc_.setBounds(8, 362, leftW, 40);
-        notice_.setBounds(8, 408, leftW, 40);
+        phrase_.setBounds(8, 404, leftW, 20);
+        notice_.setBounds(8, 424, leftW, 30);
 
         uikit::placeRow(juce::Rectangle<int>(rightX, 8, rightW, 32), {{&modeAuto_, 72}, {&modeProg_, 96}, {&modeHybrid_, 80}, {&cuePrev_, 34}, {&cueLabel_, 0}, {&cueNext_, 34}});
         const int padW = (rightW - 3 * 8) / 4;
@@ -335,7 +374,7 @@ private:
         placeSlider(juce::Rectangle<int>(rightX, 292, rightW, 28), "Saturation", sat_);
         uikit::placeRow(juce::Rectangle<int>(rightX, 332, rightW, 32), {{&prismOn_, 130}, {&prismAmount_, 0}});
         uikit::placeRow(juce::Rectangle<int>(rightX, 368, rightW, 32), {{&bloomOn_, 130}, {&bloomAmount_, 0}});
-        uikit::placeRow(juce::Rectangle<int>(rightX, 408, rightW, 40), {{&undo_, 56}, {&redo_, 56}, {&storeA_, 0}, {&recallA_, 0}, {&storeB_, 0}, {&recallB_, 0}});
+        bar_.setBounds(rightX, 408, rightW, 40);
         return std::max(height, 456);
     }
 
@@ -347,7 +386,9 @@ private:
         };
         targetBox_.setBounds(0, y, width, 32); y += 38;
         preview_.setBounds(0, y, std::min(width, 320), 180); y += 186;
-        tempoInfo_.setBounds(0, y, width, 22); y += 24;
+        tempoInfo_.setBounds(0, y, width - 26, 22);
+        swatch_.setBounds(width - 22, y + 1, 20, 20); y += 24;
+        phrase_.setBounds(0, y, width, 20); y += 22;
         row(44, {{&tap_, 52}, {&nudgeDown_, 32}, {&bpm_, 84}, {&nudgeUp_, 32}, {&releaseBpm_, 64}, {&keyBox_, 0}});
         arc_.setBounds(0, y, width, 40); y += 46;
         row(32, {{&modeAuto_, 72}, {&modeProg_, 96}, {&modeHybrid_, 80}, {&cuePrev_, 34}, {&cueLabel_, 0}, {&cueNext_, 34}});
@@ -360,7 +401,7 @@ private:
         placeSlider(juce::Rectangle<int>(0, y, width, 28), "Saturation", sat_); y += 34;
         row(32, {{&prismOn_, 130}, {&prismAmount_, 0}});
         row(32, {{&bloomOn_, 130}, {&bloomAmount_, 0}});
-        row(40, {{&undo_, 56}, {&redo_, 56}, {&storeA_, 0}, {&recallA_, 0}, {&storeB_, 0}, {&recallB_, 0}});
+        bar_.setBounds(0, y, width, 40); y += 46;
         notice_.setBounds(0, y, width, 40); y += 46;
         return y;
     }
@@ -379,7 +420,19 @@ private:
     juce::TextButton tap_, nudgeDown_, nudgeUp_, releaseBpm_;
     juce::Slider bpm_;
     juce::ComboBox keyBox_;
-    juce::Label tempoInfo_;
+    juce::Label tempoInfo_, phrase_;
+    // Key colour swatch (FEAT-002): a plain rectangle, never the only carrier of information (the key name is in tempoInfo_).
+    struct Swatch final : juce::Component {
+        void set(bool v, juce::Colour c) { if (v != valid_ || c != col_) { valid_ = v; col_ = c; repaint(); } }
+        void paint(juce::Graphics& g) override {
+            g.setColour(valid_ ? col_ : theme::bgRaised());
+            g.fillRoundedRectangle(getLocalBounds().toFloat().reduced(1.f), 3.f);
+            g.setColour(theme::lineControl());
+            g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1.f), 3.f, 1.f);
+        }
+        bool valid_ = false; juce::Colour col_;
+    } swatch_;
+    UndoSnapshotBar bar_;
     EnergyArcMeter arc_;
     juce::TextButton modeAuto_, modeProg_, modeHybrid_, cuePrev_, cueNext_;
     juce::Label cueLabel_;

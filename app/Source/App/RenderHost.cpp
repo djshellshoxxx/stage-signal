@@ -5,6 +5,20 @@
 
 namespace ss::app {
 
+namespace {
+// 25% multiply toward the tint colour. Only darkens a little (premultiplied alpha stays valid); no allocation.
+void applyTint(PixelBuffer& p, std::uint32_t tint) {
+    const int tr = (tint >> 16) & 255, tg = (tint >> 8) & 255, tb = tint & 255;
+    const int mr = 192 + (tr * 64) / 255, mg = 192 + (tg * 64) / 255, mb = 192 + (tb * 64) / 255;   // 192..256 of 256
+    std::uint8_t* d = p.rgba.data();
+    for (std::size_t i = 0, n = p.rgba.size(); i + 3 < n; i += 4) {
+        d[i] = static_cast<std::uint8_t>((d[i] * mr) >> 8);
+        d[i + 1] = static_cast<std::uint8_t>((d[i + 1] * mg) >> 8);
+        d[i + 2] = static_cast<std::uint8_t>((d[i + 2] * mb) >> 8);
+    }
+}
+}  // namespace
+
 RenderHost::RenderHost(const ss::IClock& clock, BlackoutLatch& latch, const LatestShared<ss::show::ShowSnapshot>& show,
                        const LatestShared<SceneTable>& scenes, const ss::LatestMailbox<ss::FeatureSnapshot>& features,
                        const ss::LatestMailbox<ss::render::AudioVisualInput>& visual)
@@ -91,16 +105,19 @@ std::size_t RenderHost::renderFrame() {
             si.seed = st->sceneSeed;
             si.strobingDisabled = snap->strobingDisabled;
             const PixelBuffer* a = nullptr;
+            const std::uint32_t tint = tint_.load(std::memory_order_relaxed);
             if (o.sceneA) {
                 o.sceneA->render(si, o.frameA);
                 if (st->params.effectAmount[0] > 0.f)
                     ss::render::applyEffect(model::EffectKind::PrismMirror, st->params.effectAmount[0], si, o.frameA, o.fx);
                 if (st->params.effectAmount[1] > 0.f)
                     ss::render::applyEffect(model::EffectKind::BloomPulse, st->params.effectAmount[1], si, o.frameA, o.fx);
+                if (tint & 0x01000000u) applyTint(o.frameA, tint);
                 a = &o.frameA;
             }
             if (transitioning && o.sceneB) {
                 o.sceneB->render(si, o.frameB);
+                if (tint & 0x01000000u) applyTint(o.frameB, tint);
                 // compose: a = outgoing, b = incoming, progress 0..1
                 in.scene = {&o.frameB, a, st->transition, static_cast<float>(st->transitionProgress)};
             } else {

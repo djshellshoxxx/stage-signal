@@ -25,7 +25,10 @@ private:
 
     // MIDI column
     juce::Label midiTitle_, portsText_, learnStatus_, mappingHeader_, mappingEmpty_, alarmsText_, midiNote_;
-    juce::TextButton learn_{"Learn"};
+    juce::TextButton learn_{"Learn"}, addMap_{"Add mapping"}, removeMap_{"Remove"};
+    juce::ComboBox actionBox_, removeBox_;
+    juce::Label mappingList_;
+    juce::String lastMapKey_;
     juce::ToggleButton clock_{"Send MIDI clock (opt-in)"}, sysEx_{"SysEx (off, up to 1024 bytes)"},
         midiOut_{"MIDI output enabled"};
     bool learning_ = false;

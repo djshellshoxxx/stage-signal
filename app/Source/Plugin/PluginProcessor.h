@@ -28,9 +28,9 @@ public:
     void setCurrentProgram(int) override {}
     const juce::String getProgramName(int) override { return {}; }
     void changeProgramName(int, const juce::String&) override {}
-    // Versioned, bounded state blob (app-shell 7.3, APP-SH-09) is a shell-integration follow-up.
-    void getStateInformation(juce::MemoryBlock&) override {}
-    void setStateInformation(const void*, int) override {}
+    // Versioned, bounded state blob (app-shell 7.3, APP-SH-09): magic, version, length, JSON, SHA-256.
+    void getStateInformation(juce::MemoryBlock&) override;
+    void setStateInformation(const void*, int) override;
 
     // Lazily creates and starts the process-wide controller (message thread).
     std::shared_ptr<ss::app::AppController> ensureController();

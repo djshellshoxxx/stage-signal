@@ -56,8 +56,12 @@ public:
     // Any thread.
     std::shared_ptr<const SharedFrame> latestFrame(OutputId id) const;
     RenderStats stats() const;
-    double targetFps() const { return targetFps_; }
-    void setTargetFps(double fps) { targetFps_ = fps; }                // before the thread starts
+    double targetFps() const { return targetFps_.load(std::memory_order_relaxed); }
+    void setTargetFps(double fps) { targetFps_.store(fps, std::memory_order_relaxed); }   // any thread (perf adaptation)
+    // Optional palette tint from the key colour (FEAT-002): a gentle multiply on the scene frames, off by default.
+    void setPaletteTint(bool on, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
+        tint_.store(on ? (0x01000000u | (std::uint32_t(r) << 16) | (std::uint32_t(g) << 8) | b) : 0u, std::memory_order_relaxed);
+    }
 
 private:
     struct OutputRender {
@@ -82,7 +86,8 @@ private:
     const ss::LatestMailbox<ss::FeatureSnapshot>& features_;
     const ss::LatestMailbox<ss::render::AudioVisualInput>& visual_;
     IRenderLayerSource* layers_ = nullptr;
-    double targetFps_ = 25.0;
+    std::atomic<double> targetFps_{25.0};
+    std::atomic<std::uint32_t> tint_{0};
 
     std::mutex stageMutex_;
     std::vector<OutputSpec> staged_;

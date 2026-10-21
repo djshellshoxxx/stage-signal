@@ -54,3 +54,9 @@ endif()
 if(APPLE)
   target_link_libraries(StageSignal PRIVATE "-framework Security" "-framework CoreFoundation")
 endif()
+
+# Allocation counter for the `shell: callback no alloc` self-test: standalone executable only. It replaces global
+# operator new, which must never happen inside a plugin loaded by a host.
+if(TARGET StageSignal_Standalone)
+  target_sources(StageSignal_Standalone PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Hooks/AllocHook.cpp)
+endif()

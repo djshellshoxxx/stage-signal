@@ -91,15 +91,19 @@ Shared file with a fixed protocol: `Tests/UiSelfTests.cpp` (three UI workers, on
 
 ## 6. Honest status: stubbed or deviating
 
-- **Start steps marked Stubbed** in `AppController::start()` (the startup log says so): 2 settings (secret store starts, settings load is not implemented), 3 crash marker (`running.lock` not read or written), 7 UI (windows are created by the host app, not the controller), 10 MIDI (provider starts, no port opened), 12 media (idle stub), 14 ready (no lock file). Step 4 loads only the built-in sample show; persist-backed load and 30 s autosave are not wired. Router, palette and perf cores are not instantiated; perf counters are sampled and shown, no adaptation runs.
-- `Engine/DesktopAdapters.cpp` returns fakes: the standalone binary starts with "No audio device" and sends nothing.
-- `MediaWorker`: no decoding, camera, recording or broadcast. `StartRecording` / `StartBroadcast` return a rejected result with a plain reason.
-- Analysis wakes by a 2 ms poll, not the spec's counting semaphore, because signalling a lock-based primitive from the audio thread is not allowed. `onsetFired` is edge-latched in the mailbox; a consumer slower than the analysis loop can miss an onset (a drain API on the mailbox is the fix, left for the shell worker).
-- Every output gets its own compositor; duplicate-output sharing is an optimisation not done.
-- `FrameExchange` is a pool of shared frames, not the `LatestMailbox` of the spec, because `PixelBuffer` is not trivially copyable. A frame the UI keeps holding makes the renderer skip and count a frame instead of blocking.
-- Shutdown stages are timed after the fact (and thread joins use `Thread::stopThread(timeout)`); a stuck non-thread stage cannot be pre-empted. The injected-stuck-writer test is not written.
-- Plugin mode: several instances in one host share the controller; the Secondary-instance mode and the versioned state blob (`getStateInformation`) are not implemented. `juce_video` is still not linked (camera), see `app-shell.md` section 11.
-- Not measured: callback time, allocation count, RT behaviour under load. The `shell: callback no alloc` test is not written.
+Updated by shell-integration, 21 Oct 2026. Detail and test names: `app-shell.md` "Implementation status".
+
+- **Start steps** all run for real now except step 7 (UI windows are created by the host application, logged Stubbed) and step 12 (media, owned by the media worker, logged Stubbed). Settings, `running.lock`, Recovery mode, persist-backed show load, 30 s autosave, `--show` and `--safe`, single-instance lock and quit confirmation exist. With an empty `AppConfig::dataDir` (self-tests, CI) nothing is read or written.
+- Router, palette keymap and perf adaptation are instantiated; the keymap used by the Live-tab shortcuts is still the static default and audience windows do not read the router yet.
+- `Engine/DesktopAdapters.cpp` returns the real desktop adapters (see `app-adapters.md`); the controller now feeds them (MIDI actions, mapping table, lighting patch and destination). Real hardware is untested.
+- `MediaWorker`: owned by another worker, not touched. Text publish, media import and removal answer "needs the media worker".
+- Analysis still wakes by a 2 ms poll. The onset drain exists (`onsetsSince`), so a slow consumer no longer misses onsets.
+- Every output has its own compositor; `FrameExchange` is a frame pool, not a `LatestMailbox`.
+- Shutdown stage 2 has a real timeout with a helper thread; other stages are still timed after the fact.
+- Plugin mode: versioned state blob and Secondary-instance mode are implemented and self-tested, but no CLAP host was used. `juce_video` is still not linked (camera).
+- Allocation: `shell: callback no alloc` proves the `AudioIngress::pushBlock` entry only (standalone build, Linux). Callback time and behaviour under load are not measured.
+- Phrase-quantised auto scene changes are not done (no hook in `core/show`); phrase position, key colour and beat looks are published and shown.
+- Not done: window position persistence, wizard completion persistence, display roles read-back, `shell: callback worst time`, `safety latch beats stalled control`, `no sockets at idle`, `clap passthrough`.
 
 ## 7. How this was proven
 

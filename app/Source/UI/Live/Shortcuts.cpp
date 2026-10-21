@@ -24,7 +24,7 @@ bool toChord(const juce::KeyPress& k, palette::KeyChord& out) {
 
     std::uint8_t mods = palette::kModNone;
     const auto m = k.getModifiers();
-    if (m.isCtrlDown()) mods |= palette::kModCtrl;
+    if (m.isCtrlDown() || m.isCommandDown()) mods |= palette::kModCtrl;
     if (m.isShiftDown()) mods |= palette::kModShift;
     if (m.isAltDown()) mods |= palette::kModAlt;
     out.key = key;
@@ -45,13 +45,8 @@ bool handleShortcut(UiModel& model, const juce::KeyPress& key) {
     const bool textFocused = uikit::textFieldFocused();
     const auto r = keymap().dispatch(chord, textFocused);
     if (r.kind == palette::DispatchResult::Kind::Action) {
+        if (r.action.actionId == ss::id(ss::ActionId::OpenCommandPalette)) return false;   // OperatorRoot opens the overlay
         model.submitAction(r.action);
-        return true;
-    }
-    // app-ui 6 binds T to TapTempo, but core/palette KeyMap::defaults() does not carry it yet. Until it does,
-    // the Live tab adds the binding here. Inert while a text field has focus, like the other letter keys.
-    if (!textFocused && chord.key == palette::Key::T && chord.mods == palette::kModNone) {
-        uikit::sendAction(model, ss::ActionId::TapTempo);
         return true;
     }
     return false;

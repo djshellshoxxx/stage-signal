@@ -1,4 +1,5 @@
 #include "UI/RecordBroadcastPanel.h"
+#include <cstdlib>
 #include <cstdio>
 #include <initializer_list>
 #include "UI/Overlays/OverlayText.h"
@@ -102,9 +103,25 @@ RecordBroadcastPanel::RecordBroadcastPanel(UiModel& model) : PanelBase(model, "R
     styleLabel(keyNote_, false);
     keyNote_.setText("The key is masked and is never shown again after saving.", juce::dontSendNotification);
     styleLabel(settingsNote_, false);
-    settingsNote_.setText("Saving stream settings needs a command that is not in this build yet.", juce::dontSendNotification);
-    saveSettings_.setEnabled(false);
-    saveSettings_.setTooltip("Saving stream settings is not available in this build.");
+    settingsNote_.setText("Host, port and path are saved on this computer. The key goes to the system keychain.", juce::dontSendNotification);
+    saveSettings_.setTooltip("Save the endpoint and the stream key.");
+    saveSettings_.onClick = [this] {
+        AppCommand c;
+        c.kind = AppCommandKind::SetBroadcastEndpoint;
+        c.text = host_.getText().toStdString();
+        c.text2 = path_.getText().toStdString();
+        c.a = std::atoi(port_.getText().toRawUTF8());
+        std::uint64_t corr = 0;
+        if (!overlay::sendCommand(model_, c, &corr)) { castStatus_.setText("Too many requests waiting. Try again in a moment.", juce::dontSendNotification); return; }
+        if (key_.getText().isNotEmpty()) {
+            AppCommand k;
+            k.kind = AppCommandKind::SetBroadcastKey;
+            k.text = key_.getText().toStdString();
+            overlay::sendCommand(model_, k, &corr);
+            key_.clear();                                  // the key is never kept in the editor after saving
+        }
+        castStatus_.setText("Saved.", juce::dontSendNotification);
+    };
     styleLabel(summary_, false);
     styleLabel(castNote_, false);
     styleLabel(castStats_, false);
@@ -222,6 +239,13 @@ void RecordBroadcastPanel::uiSnapshotChanged(const UiSnapshot& s) {
                            ". Change it on Live.",
                        juce::dontSendNotification);
 
+    {
+        const auto& e = s.broadcastEndpoint;
+        if (!host_.hasKeyboardFocus(true) && host_.getText().isEmpty()) host_.setText(juce::String(e.host), false);
+        if (!path_.hasKeyboardFocus(true) && path_.getText().isEmpty()) path_.setText(juce::String(e.path), false);
+        if (!port_.hasKeyboardFocus(true) && port_.getText().isEmpty() && e.port > 0) port_.setText(juce::String(e.port), false);
+        keyNote_.setText(e.keySaved ? "A key is saved. It is never shown again. Type a new one to replace it." : "The key is masked and is never shown again after saving.", juce::dontSendNotification);
+    }
     const auto& b = s.broadcast;
     broadcastActive_ = b.state == BroadcastUiState::Live || b.state == BroadcastUiState::Reconnecting ||
                        b.state == BroadcastUiState::Preparing;

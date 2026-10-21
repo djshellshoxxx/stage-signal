@@ -41,6 +41,14 @@ public:
     ss::dynamics::DynamicsProcessor& dynamics() { return dyn_; }     // setParams() is callable from any thread
     const ss::LatestMailbox<ss::FeatureSnapshot>& featureMailbox() const { return features_; }
     const ss::LatestMailbox<ss::render::AudioVisualInput>& visualMailbox() const { return visual_; }
+    // Onset drain: every onset the analyser emitted is counted, so a consumer slower than the analysis loop never
+    // misses one (the mailbox's onsetFired is edge-latched and can be overwritten). Each consumer keeps its own cursor.
+    std::uint64_t onsetsSince(std::uint64_t& cursor) const {
+        const std::uint64_t now = onsets_.load(std::memory_order_relaxed);
+        const std::uint64_t n = now - cursor;
+        cursor = now;
+        return n;
+    }
     std::uint64_t blocksProcessed() const { return blocks_.load(std::memory_order_relaxed); }
 
 private:
@@ -57,7 +65,7 @@ private:
     ss::LatestMailbox<ss::FeatureSnapshot> features_;
     ss::LatestMailbox<ss::render::AudioVisualInput> visual_;
     std::atomic<ss::Ns> lastBlockNs_{0};
-    std::atomic<std::uint64_t> blocks_{0};
+    std::atomic<std::uint64_t> blocks_{0}, onsets_{0};
 };
 
 }  // namespace ss::app

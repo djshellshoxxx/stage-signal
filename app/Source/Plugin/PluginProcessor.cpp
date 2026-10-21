@@ -66,6 +66,18 @@ void StageSignalProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     if (mode_->clearsProcessorOutput()) buffer.clear();
 }
 
+void StageSignalProcessor::getStateInformation(juce::MemoryBlock& dest) {
+    auto c = ensureController();
+    auto blob = c->getStateBlob();                       // a bad state is never thrown across the host boundary
+    if (blob.ok()) dest.replaceAll(blob.value().data(), blob.value().size());
+}
+
+void StageSignalProcessor::setStateInformation(const void* data, int size) {
+    if (data == nullptr || size <= 0) return;
+    auto c = ensureController();
+    c->setStateBlob(data, static_cast<std::size_t>(size));     // validated first; on failure the current state stays; always disarmed
+}
+
 juce::AudioProcessorEditor* StageSignalProcessor::createEditor() { return new StageSignalEditor(*this); }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new StageSignalProcessor(); }

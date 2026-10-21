@@ -143,6 +143,10 @@ SelfTestResult smoke() {
 
 }  // namespace
 
-void registerShellSelfTests(SelfTestRegistry& r) { r.add("smoke", smoke); }
+void registerShellIntegrationTests(SelfTestRegistry& r);
+void registerShellSelfTests(SelfTestRegistry& r) {
+    r.add("smoke", smoke);
+    registerShellIntegrationTests(r);
+}
 
 }  // namespace ss::app

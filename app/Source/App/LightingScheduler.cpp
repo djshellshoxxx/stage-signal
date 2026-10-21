@@ -47,7 +47,7 @@ void LightingScheduler::tick() {
     if (!h) return;
     ss::lighting::IDatagramSink& sink = isArmed ? static_cast<ss::lighting::IDatagramSink&>(real_)
                                                 : static_cast<ss::lighting::IDatagramSink&>(null_);
-    LightingTickContext ctx{clock_.nowMonotonic(), isArmed, blackout, lite, feat, sink};
+    LightingTickContext ctx{clock_.nowMonotonic(), isArmed, blackout, lite, feat, sink, BeatLightCtx::unpack(beat_.load(std::memory_order_relaxed))};
     h(ctx);
 }
 
@@ -80,6 +80,13 @@ void LightingDriver::post(EngineJob job) {
     jobs_.push_back(std::move(job));
 }
 
+void LightingDriver::setBeatFixtures(std::vector<std::uint32_t> ids) {
+    post([this, ids = std::move(ids)](ss::lighting::LightingEngine&) {
+        looks_.clear();
+        for (auto id : ids) { ss::lighting::FixtureLook l; l.fixtureId = id; looks_.push_back(l); }
+    });
+}
+
 void LightingDriver::onTick(const LightingTickContext& ctx) {
     using ss::lighting::EngineState;
     {
@@ -104,6 +111,19 @@ void LightingDriver::onTick(const LightingTickContext& ctx) {
     in.resolve.lightingBlackout = ctx.blackout;
     in.resolve.strobingDisabled = ctx.show.strobingDisabled;
     in.resolve.audio = ctx.features;
+    if (ctx.beat.on && ctx.beat.valid && !looks_.empty()) {
+        // Beat pulse: the Cue layer carries the modulation. BeatLooks already honours the strobe lock, and the
+        // resolver still forces strobe channels to their safe value while strobing is disabled.
+        for (auto& l : looks_) {
+            l.set(ss::model::ChannelFunction::Intensity, ctx.beat.value);
+            if (ctx.beat.keyValid) {
+                l.set(ss::model::ChannelFunction::Red, float(ctx.beat.r) / 255.f);
+                l.set(ss::model::ChannelFunction::Green, float(ctx.beat.g) / 255.f);
+                l.set(ss::model::ChannelFunction::Blue, float(ctx.beat.b) / 255.f);
+            }
+        }
+        in.resolve.cue = looks_;
+    }
     const auto& r = engine_.tick(now, in);
     engineState_.store(engine_.state(), std::memory_order_relaxed);
     if (r.transmitted) {

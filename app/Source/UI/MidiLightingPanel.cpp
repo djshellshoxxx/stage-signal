@@ -1,5 +1,6 @@
 #include "UI/MidiLightingPanel.h"
 #include <cstdlib>
+#include "ss/palette/registry.hpp"
 #include "UI/Overlays/OverlayText.h"
 #include "UI/Theme.h"
 
@@ -43,13 +44,38 @@ MidiLightingPanel::MidiLightingPanel(UiModel& model) : PanelBase(model, "MIDI / 
     alarmsText_.setText("Feedback alarms: none reported.", juce::dontSendNotification);
     styleLabel(midiNote_, false);
 
+    styleLabel(mappingList_, false);
+    mappingList_.setMinimumHorizontalScale(0.8f);
+    int actionRow = 1;
+    for (const auto& a : ss::palette::Registry::all()) actionBox_.addItem(a.name, actionRow++);
+    actionBox_.setTextWhenNothingSelected("Action for this control");
+    actionBox_.setVisible(false); addMap_.setVisible(false);
     learn_.onClick = [this] {
         learning_ = !learning_;
         learn_.setButtonText(learning_ ? "Cancel learn" : "Learn");
-        learnStatus_.setText(learning_
-                                 ? "Waiting for a MIDI message. Move a control. Nothing is captured until MIDI input reports to the UI."
-                                 : "",
-                             juce::dontSendNotification);
+        AppCommand c;
+        c.kind = learning_ ? AppCommandKind::MidiLearnBegin : AppCommandKind::MidiLearnCancel;
+        overlay::sendCommand(model_, c, &lastCommandCorrelation_);
+        if (!learning_) { learnStatus_.setText("", juce::dontSendNotification); actionBox_.setVisible(false); addMap_.setVisible(false); resized(); }
+    };
+    addMap_.onClick = [this] {
+        const int row = actionBox_.getSelectedId();
+        if (row <= 0) { learnStatus_.setText("Pick an action first.", juce::dontSendNotification); return; }
+        AppCommand c;
+        c.kind = AppCommandKind::MidiLearnCommit;
+        c.a = static_cast<std::int64_t>(ss::palette::Registry::all()[static_cast<std::size_t>(row - 1)].id);
+        overlay::sendCommand(model_, c, &lastCommandCorrelation_);
+        learning_ = false; learn_.setButtonText("Learn");
+        actionBox_.setVisible(false); addMap_.setVisible(false);
+        learnStatus_.setText("Mapping added.", juce::dontSendNotification);
+        resized();
+    };
+    removeBox_.setTextWhenNothingSelected("Choose a mapping");
+    removeMap_.onClick = [this] {
+        const int id = removeBox_.getSelectedId();
+        if (id <= 0) return;
+        AppCommand c; c.kind = AppCommandKind::MidiRemoveMapping; c.a = id;
+        overlay::sendCommand(model_, c, &lastCommandCorrelation_);
     };
     clock_.setEnabled(false);
     clock_.setTooltip("Clock output needs a tempo source choice that is not in this build yet.");
@@ -99,8 +125,13 @@ MidiLightingPanel::MidiLightingPanel(UiModel& model) : PanelBase(model, "MIDI / 
         overlay::sendCommand(model_, c, &lastCommandCorrelation_);
         setLightingStatus("Sent.");
     };
-    broadcast_.setEnabled(false);
-    broadcast_.setTooltip("Broadcast delivery is not available in this build.");
+    broadcast_.setTooltip("Sends to every device on the network. Leave off unless the node needs it.");
+    broadcast_.onClick = [this] {
+        AppCommand c;
+        c.kind = AppCommandKind::SetLightingBroadcast;
+        c.a = broadcast_.getToggleState() ? 1 : 0;
+        overlay::sendCommand(model_, c, &lastCommandCorrelation_);
+    };
 
     arm_.onClick = [this] {
         if (destIp_.getText().isEmpty()) { setLightingStatus("Set a destination before you arm."); return; }
@@ -132,7 +163,7 @@ MidiLightingPanel::MidiLightingPanel(UiModel& model) : PanelBase(model, "MIDI / 
     showArmConfirm(false);
 
     for (auto* c : std::initializer_list<juce::Component*>{
-             &midiTitle_, &portsText_, &learn_, &learnStatus_, &mappingHeader_, &mappingEmpty_, &clock_, &sysEx_,
+             &midiTitle_, &portsText_, &learn_, &learnStatus_, &mappingHeader_, &mappingEmpty_, &mappingList_, &addMap_, &removeMap_, &actionBox_, &removeBox_, &clock_, &sysEx_,
              &midiOut_, &alarmsText_, &midiNote_, &lightTitle_, &stateChip_, &lightNote_, &interfaceIp_, &useInterface_,
              &destLabel_, &destIp_, &destPort_, &setDest_, &broadcast_, &universeText_,
              &arm_, &disarm_, &confirmText_, &confirmArm_, &cancelArm_, &dryRun_, &blackout_, &restore_, &patchText_,
@@ -176,7 +207,10 @@ void MidiLightingPanel::resized() {
     row(learn_, lx, y, 110, 28);
     row(learnStatus_, lx + 118, y, colW - 118, 28); y += 34;
     row(mappingHeader_, lx, y, colW, 20); y += 22;
-    row(mappingEmpty_, lx, y, colW, 22); y += 28;
+    row(mappingEmpty_, lx, y, colW, 22);
+    row(mappingList_, lx, y, colW, 54); y += 58;
+    if (actionBox_.isVisible()) { row(actionBox_, lx, y, colW - 118, 26); row(addMap_, lx + colW - 110, y, 110, 26); y += 30; }
+    row(removeBox_, lx, y, colW - 118, 26); row(removeMap_, lx + colW - 110, y, 110, 26); y += 32;
     row(clock_, lx, y, colW, 24); y += 26;
     row(sysEx_, lx, y, colW, 24); y += 26;
     row(midiOut_, lx, y, colW, 24); y += 30;
@@ -211,9 +245,30 @@ void MidiLightingPanel::resized() {
 
 void MidiLightingPanel::uiSnapshotChanged(const UiSnapshot& s) {
     const auto& m = s.midi;
-    portsText_.setText("Input ports: " + juce::String(static_cast<int>(m.inputPorts)) + ", output ports: " +
-                           juce::String(static_cast<int>(m.outputPorts)) + ". Port names are not reported yet.",
-                       juce::dontSendNotification);
+    {
+        juce::String t;
+        for (const auto& p : m.ports) t << (p.isInput ? "In: " : "Out: ") << juce::String(p.name) << (p.open ? " (open)" : "") << ". ";
+        if (t.isEmpty()) t = "No MIDI ports found. Plug a device in; this list refreshes every few seconds.";
+        portsText_.setText(t, juce::dontSendNotification);
+    }
+    {   // mappings from the snapshot
+        juce::String t, key;
+        for (const auto& r : m.mappings) key << juce::String(static_cast<int>(r.id)) << ",";
+        const bool rebuild = key != lastMapKey_;
+        if (rebuild) { lastMapKey_ = key; removeBox_.clear(juce::dontSendNotification); }
+        for (const auto& r : m.mappings) {
+            t << "Ch " << (r.channel == 255 ? juce::String("any") : juce::String(r.channel + 1)) << " #" << r.number << " to "
+              << juce::String(r.actionName) << (r.deviceAvailable ? "" : " (device missing)") << ". ";
+            if (rebuild) removeBox_.addItem("Ch " + juce::String(r.channel + 1) + " #" + juce::String(r.number) + " " + juce::String(r.actionName), static_cast<int>(r.id));
+        }
+        mappingEmpty_.setVisible(m.mappings.empty());
+        mappingList_.setText(t, juce::dontSendNotification);
+    }
+    if (m.learn.active) {
+        learnStatus_.setText(juce::String(m.learn.text), juce::dontSendNotification);
+        const bool pick = m.learn.captured;
+        if (pick != actionBox_.isVisible()) { actionBox_.setVisible(pick); addMap_.setVisible(pick); resized(); }
+    }
     midiNote_.setText(juce::String(m.note), juce::dontSendNotification);
     midiOut_.setToggleState(m.outputEnabled, juce::dontSendNotification);
     clock_.setToggleState(m.clockOn, juce::dontSendNotification);
@@ -222,6 +277,18 @@ void MidiLightingPanel::uiSnapshotChanged(const UiSnapshot& s) {
     stateChip_.setText(juce::String(lightingWord(l.state)), juce::dontSendNotification);
     lightNote_.setText(juce::String(l.note), juce::dontSendNotification);
     dryRun_.setToggleState(l.state == LightingUiState::DryRun, juce::dontSendNotification);
+    broadcast_.setToggleState(l.broadcast, juce::dontSendNotification);
+    if (!interfaceIp_.hasKeyboardFocus(true) && interfaceIp_.getText().isEmpty()) interfaceIp_.setText(juce::String(l.interfaceIp), false);
+    if (!destIp_.hasKeyboardFocus(true) && destIp_.getText().isEmpty()) destIp_.setText(juce::String(l.destination), false);
+    if (!destPort_.hasKeyboardFocus(true)) destPort_.setText(juce::String(l.port), false);
+    universeText_.setText(juce::String(l.protocol) + ", " + juce::String(l.universes) + " universes, " + juce::String(l.fixtures) +
+                              " fixtures. Rate 25 per second, up to 40.", juce::dontSendNotification);
+    {
+        juce::String t = l.patchIssues.empty() ? juce::String(l.fixtures == 0 ? "No fixtures patched. Add them in the show." : "Patch is clean.") : juce::String();
+        for (const auto& i : l.patchIssues) t << juce::String(i) << " ";
+        if (!l.patchIssues.empty() && !l.patchCanArm) t << "Arm is blocked until this is fixed.";
+        patchText_.setText(t, juce::dontSendNotification);
+    }
     arm_.setEnabled(l.state != LightingUiState::Armed);
     disarm_.setEnabled(l.state == LightingUiState::Armed || l.state == LightingUiState::DryRun);
     arm_.setTooltip(l.state == LightingUiState::Armed ? "Lighting is already armed." : "Arm lighting. Asks you to confirm.");
