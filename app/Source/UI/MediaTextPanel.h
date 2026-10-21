@@ -1,7 +1,8 @@
-// Media/Text tab (5.3), text draft/preview/publish (11). Extra files go in UI/MediaText/.
-// Owner: ui-other. EMPTY panel in the contract commit: it only needs a UiModel&. Edit freely inside this file
-// pair and inside your own subdirectory; do not edit PanelBase.h, Theme.h, TabHost.* or OperatorRoot.*.
+// Media/Text tab (app-ui 5.3 and 11). Owner: ui-other. Media import needs the media worker (not in this build), so the
+// list shows what the UI model reports. The text draft, preview and character count are local. Publishing a draft
+// is held back until the text reaches the engine with the action (see the note under the editor).
 #pragma once
+#include <string>
 #include "UI/PanelBase.h"
 
 namespace ss::app {
@@ -10,8 +11,25 @@ class MediaTextPanel final : public PanelBase {
 public:
     explicit MediaTextPanel(UiModel& model);
     ~MediaTextPanel() override;
+
+    void paint(juce::Graphics& g) override;
     void resized() override;
+
+    static constexpr int kTextLimit = 4096;   // code points (app-ui 11)
+
 private:
+    void uiSnapshotChanged(const UiSnapshot& s) override;
+    void uiActionOutcome(const ActionOutcome& o) override;
+    void updateCount();
+    void setPreview(bool on);
+
+    juce::Label mediaTitle_, mediaCount_, mediaNote_, textTitle_, count_, previewLabel_, publishNote_, status_;
+    juce::TextButton import_{"Import..."}, remove_{"Remove"};
+    juce::TextEditor draft_;
+    juce::TextButton preview_{"Preview"}, publish_{"Publish"}, clear_{"Clear published"};
+    std::uint64_t clearCorrelation_ = 0;
+    bool previewing_ = false;
+    std::string previewedText_;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MediaTextPanel)
 };
 
