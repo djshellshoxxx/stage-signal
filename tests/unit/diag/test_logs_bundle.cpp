@@ -1,4 +1,5 @@
 #include "doctest/doctest.h"
+#include <limits>
 #include <algorithm>
 #include <map>
 #include "ss/diag/logrotate.hpp"
@@ -230,7 +231,7 @@ TEST_CASE("REQ-X05: text helpers are locale-free and exact") {
     CHECK(fixedDecimals(0.05, 2) == "0.05");
     CHECK(fixedDecimals(-0.004, 2) == "0.00");
     CHECK(fixedDecimals(-2.5, 0) == "-3");
-    CHECK(fixedDecimals(0.0 / 0.0, 2) == "0");
+    CHECK(fixedDecimals(std::numeric_limits<double>::quiet_NaN(), 2) == "0");
     CHECK(keyName(9, true) == "A minor");
     CHECK(keyName(1, false) == "C# major");
     CHECK(keyName(-1, false).empty());
