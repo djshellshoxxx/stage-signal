@@ -235,3 +235,18 @@ Code: `app/Source/Engine/Desktop/**`, `Engine/DesktopAdapters.cpp` (`makeDesktop
 | Serial DMX | Unchanged: `NullSerialDmx` reports Unavailable | n/a |
 
 Not done: audio is not yet wired to `StageSignalProcessor::processBlock` / `AudioProcessorPlayer` (the source feeds `IAudioSink` directly, which is what `AppController` uses). Cue/manual looks for the lighting engine and MIDI mappings must be fed by the controller through `LightingDriver::post` and `MidiDriver::post/wantInput/setActionSink`.
+
+## Implementation status: media, record, broadcast (engine-media-record, 21 Oct 2026)
+
+Code: `Engine/Media/NativeProcess.*` (supervisor), `Engine/Media/ImageDecode.*`, `App/Media/**` (`RecordRunner`, `BroadcastRunner`, `MediaLayers`), `App/MediaWorker.*`. Self-tests (`media:*`, `record:*`, `broadcast:*` in `Tests/MediaRecordSelfTests.cpp`) run headless on Linux against a fake ffmpeg written as an sh script. Real ffmpeg and real streaming endpoints were never run.
+
+| Piece | State | Verified |
+|---|---|---|
+| Process supervisor (P-07) | Done: `posix_spawn`, argv only, scrubbed env, separate stdout/stderr, bounded non-blocking stdin plus a second input pipe (fd 3), stop = EOF then kill. Windows: `CreateProcess` with stdin/stdout/stderr only, no second pipe, so video record and broadcast report "not available" there | Linux: round trip, exit code, kill, missing program. Windows branch not compiled |
+| ffmpeg discovery | Done: user path, next to app, PATH; `-version`, `-encoders`, one-frame test encode per eligible encoder (3 s each, on the worker thread) | Fake script only. libx264 is excluded by the record core (GPL); a hardware encoder or libopenh264 is needed |
+| Recording | Done: WAV always (core `AudioOnlyRecorder`, journal, metadata JSON, markers CSV, disk checks every 5 s); video as an extra Matroska segment process when ffmpeg and an eligible encoder exist; otherwise the view says why and WAV continues. Not started by anything except a user action | Linux with fake ffmpeg; WAV header parsed. Not tested: segment rollover in the app, disk-low stop, encoder crash mid-record, recovery banner |
+| Broadcast | Done: two-step start (summary, then confirm within 15 s), `StartToken` from Ui/Keyboard/Midi only, tap audio and rendered frames into bounded queues, stop kills within the core's budget. Stream key is resolved from the secret store at start and is still on the ffmpeg argv (known weakness) | Fake ffmpeg: Live, stop, no leak into the view. Not tested: reconnect through the app, real RTMPS/SRT |
+| Still images, text raster, layers | Done: sniff and header validation, then `juce::ImageFileFormat`; GIF shows the first frame only; no video decode; up to 3 image layers plus a text banner through `IRenderLayerSource` | PNG, hostile SVG refused, text pixels, compositor offer |
+| Camera | NOT implemented. `juce_video` is not linked and JUCE has no Linux camera (P-04); the adapter stays `NullCameraSource` (Unsupported). A Windows/macOS `juce::CameraDevice` adapter needs `juce_video` in `app/CMakeLists.txt` and a CI build on both | n/a |
+
+Needs from other owners: the desktop adapter set must return `makeNativeProcessSupervisor()` as `processes` (today it is the fake, so ffmpeg is never found in the real app); the controller must call `MediaWorker::setFrameProvider` and route `AddMarker` to `MediaWorker::handleAction`; the UI must call `MediaWorker::configure` (folder, ffmpeg path, broadcast endpoint) and send `StartBroadcast` twice (value 0 for the summary, value 1 to confirm).

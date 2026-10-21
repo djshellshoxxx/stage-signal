@@ -6,9 +6,11 @@
 namespace ss::app {
 
 struct MediaView {
-    bool workerAvailable = false;        // false in the contract commit: decoders are not implemented
+    bool workerAvailable = false;        // true once the MEDIA worker thread runs (stills decode; GIF first frame only; no video)
     std::uint32_t loadedItems = 0;
     unsigned char cameraState = 0;       // ss::app::CameraState value
+    bool ffmpegFound = false;            // video recording/broadcast possible
+    std::string ffmpegNote;              // cause when not found, or a short version line
     std::string note;
 };
 
