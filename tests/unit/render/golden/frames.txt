@@ -1,0 +1,21 @@
+# StageSignal render golden frames: FNV-1a 64 of RGBA8 bytes. Regenerate with SS_UPDATE_GOLDEN=1 ./test_render
+ColorField 3ad898de1e778c79
+ColorField.flash 3f4c4bd31cc4ac65
+ColorField.flash.nostrobe 8bf08d41e6323424
+GeometricOrbit 1b76e60c5e235003
+LissajousScope ca9271d7a267082a
+MirrorBars 5012dbc16b1f096f
+NeonGrid 1b79fe6128e4f648
+ParticleField 667f98b5c518e4b4
+PlasmaLite 66d920af0e94a0a4
+RadialPulse 883292abbcaf4853
+SpectrumBars fb41023018535ccf
+Starburst dca93bc5c28fb794
+Starburst.flash fbe5d7dfff4f3aca
+Starburst.flash.nostrobe bf06216d5b4f86b6
+Tunnel 8be563dacc05108a
+WaveformRibbon c33998a4166a8e1b
+effect.BloomPulse c17cdf23b7580953
+effect.BloomPulse.dot 32227a677dbbac03
+effect.PrismMirror.5 ea1afd4419fd122e
+effect.PrismMirror.6 c9b8091073567811
