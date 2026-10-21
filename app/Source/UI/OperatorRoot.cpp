@@ -6,6 +6,7 @@ OperatorRoot::OperatorRoot(UiModel& model) : model_(model), status_(model), tabs
     addAndMakeVisible(status_);
     addAndMakeVisible(tabs_);
     addAndMakeVisible(strip_);
+    status_.onJumpToTab = [this](int i) { tabs_.setCurrentTabIndex(i); };
     setSize(theme::kDefaultW, theme::kDefaultH);
 }
 

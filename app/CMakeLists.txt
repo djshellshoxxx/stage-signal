@@ -49,3 +49,8 @@ target_link_libraries(StageSignal PRIVATE
 if(NOT MSVC)
   target_compile_options(StageSignal PRIVATE -Wno-unused-parameter)
 endif()
+
+# macOS Keychain adapter (Engine/Desktop secret store) needs Security.framework.
+if(APPLE)
+  target_link_libraries(StageSignal PRIVATE "-framework Security" "-framework CoreFoundation")
+endif()
