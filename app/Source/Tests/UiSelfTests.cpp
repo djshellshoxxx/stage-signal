@@ -5,14 +5,14 @@
 
 namespace ss::app {
 
-void registerUiLiveSelfTests(SelfTestRegistry&);
-void registerUiSetupSelfTests(SelfTestRegistry&);
-void registerUiOtherSelfTests(SelfTestRegistry&);
+void registerUiLiveSelfTests(SelfTestRegistry&);    // Tests/UiLiveSelfTests.cpp
+void registerUiSetupSelfTests(SelfTestRegistry&);   // Tests/UiSetupSelfTests.cpp
+void registerUiOtherSelfTests(SelfTestRegistry&);   // Tests/UiOtherSelfTests.cpp
 
 void registerUiSelfTests(SelfTestRegistry& reg) {
     registerUiLiveSelfTests(reg);   // ui-live
     registerUiSetupSelfTests(reg);  // ui-setup
-    registerUiOtherSelfTests(reg);   // ui-other
+    registerUiOtherSelfTests(reg);
 }
 
 }  // namespace ss::app
