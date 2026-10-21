@@ -121,6 +121,7 @@ struct SuiteReport {
 // Deterministic JSON (sorted keys, values rounded to 4 decimals). Same SuiteReport -> byte-identical text.
 std::string toJson(const SuiteReport& r, int indent = 2);
 std::string environmentJson(const BenchEnvironment& env);
+std::string environmentHash(const BenchEnvironment& env);   // == SuiteReport::profileHash() for the same environment
 
 // ---- runner --------------------------------------------------------------------------------
 struct RunnerConfig {

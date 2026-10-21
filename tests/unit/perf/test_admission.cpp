@@ -296,3 +296,23 @@ TEST_CASE("REQ-X06: a soak shorter than 4 h is incomplete, never a pass") {
     CHECK(capped.samples() == 10);
     CHECK(capped.evaluate().truncated);
 }
+
+TEST_CASE("REQ-P01: benchmark profile round-trips through bounded JSON and rejects bad input") {
+    SuiteReport rep = reportWith(30, {{"BEN-01", Verdict::Pass}, {"BEN-03", Verdict::Fail}}, 12345);
+    BenchmarkProfile p = profileFromReport(rep);
+    auto back = profileFromJson(profileToJson(p));
+    REQUIRE(back.ok());
+    CHECK(back.value().profileHash == p.profileHash);
+    CHECK(back.value().capturedAtUnixMs == 12345);
+    REQUIRE(back.value().scenarios.size() == 2);
+    CHECK(back.value().scenarios[1].verdict == Verdict::Fail);
+    CHECK(back.value().scenarios[0].cpuPct == doctest::Approx(30.0));
+    CHECK(profileToJson(back.value()) == profileToJson(p));
+    CHECK_FALSE(profileFromJson("").ok());
+    CHECK_FALSE(profileFromJson("not json").ok());
+    CHECK_FALSE(profileFromJson("[1,2]").ok());
+    CHECK_FALSE(profileFromJson("{\"schema\":\"other\"}").ok());
+    CHECK_FALSE(profileFromJson("{\"schema\":\"stagesignal.profile/1\",\"scenarios\":{}}").ok());
+    CHECK_FALSE(profileFromJson("{\"schema\":\"stagesignal.profile/1\",\"capturedAtUnixMs\":\"x\"}").ok());
+    CHECK_FALSE(profileFromJson(std::string(70 * 1024, ' ')).ok());
+}

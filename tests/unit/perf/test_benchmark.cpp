@@ -232,6 +232,7 @@ TEST_CASE("REQ-P01: profile hash depends on the environment, not on measurements
     a.env = env(); b.env = env();
     CHECK(a.profileHash() == b.profileHash());
     CHECK(a.profileHash().size() == 64);
+    CHECK(environmentHash(a.env) == a.profileHash());
     b.env.powerPlan = "Balanced";
     CHECK(a.profileHash() != b.profileHash());
     b.env = env(); b.env.monitors[0].rotationDeg = 90;

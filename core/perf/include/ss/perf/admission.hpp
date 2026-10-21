@@ -4,6 +4,7 @@
 #pragma once
 #include <string>
 #include <vector>
+#include "ss/base/error.hpp"
 #include "ss/base/time.hpp"
 #include "ss/base/types.hpp"
 #include "ss/perf/benchmark.hpp"
@@ -28,6 +29,9 @@ struct BenchmarkProfile {
     const ProfileScenario* find(const std::string& id) const;
 };
 BenchmarkProfile profileFromReport(const SuiteReport& r);
+// Compact, bounded JSON for persisting the profile between sessions (settings, not the show file).
+std::string profileToJson(const BenchmarkProfile& p);
+Result<BenchmarkProfile> profileFromJson(const std::string& text);   // InvalidArgument on malformed/oversized input
 
 // ---- admission -----------------------------------------------------------------------------
 struct FeatureDef {

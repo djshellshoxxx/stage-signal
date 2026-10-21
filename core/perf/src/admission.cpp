@@ -1,6 +1,7 @@
 #include "ss/perf/admission.hpp"
 #include <algorithm>
 #include <cstdio>
+#include "nlohmann/json.hpp"
 
 namespace ss::perf {
 
@@ -34,6 +35,53 @@ BenchmarkProfile profileFromReport(const SuiteReport& r) {
         ps.cpuPct = s.median.value("cpu.process.avg");
         ps.workingSetBytes = static_cast<std::uint64_t>(s.median.value("mem.ws.peak"));
         p.scenarios.push_back(ps);
+    }
+    return p;
+}
+
+std::string profileToJson(const BenchmarkProfile& p) {
+    nlohmann::json j;
+    j["schema"] = "stagesignal.profile/1";
+    j["present"] = p.present;
+    j["profileHash"] = p.profileHash;
+    j["capturedAtUnixMs"] = p.capturedAtUnixMs;
+    nlohmann::json arr = nlohmann::json::array();
+    for (const ProfileScenario& s : p.scenarios) {
+        arr.push_back({{"id", s.id}, {"verdict", verdictName(s.verdict)}, {"metricsAvailable", s.metricsAvailable},
+                       {"fps", s.fps}, {"p95FrameMs", s.p95FrameMs}, {"cpuPct", s.cpuPct}, {"workingSetBytes", s.workingSetBytes}});
+    }
+    j["scenarios"] = arr;
+    return j.dump();
+}
+
+Result<BenchmarkProfile> profileFromJson(const std::string& text) {
+    auto bad = [](const char* m) { return Result<BenchmarkProfile>(makeError(ErrorCategory::InvalidArgument, m)); };
+    if (text.empty() || text.size() > 64 * 1024) return bad("profile size out of range");
+    nlohmann::json j = nlohmann::json::parse(text, nullptr, false);
+    if (j.is_discarded() || !j.is_object()) return bad("profile is not valid JSON");
+    BenchmarkProfile p;
+    try {
+        if (j.value("schema", std::string()) != "stagesignal.profile/1") return bad("unsupported profile schema");
+        p.present = j.value("present", false);
+        p.profileHash = j.value("profileHash", std::string());
+        p.capturedAtUnixMs = j.value("capturedAtUnixMs", static_cast<std::int64_t>(0));
+        if (p.profileHash.size() > 128) return bad("profile hash too long");
+        if (j.contains("scenarios")) {
+            if (!j["scenarios"].is_array() || j["scenarios"].size() > 16) return bad("profile scenarios out of range");
+            for (const auto& e : j["scenarios"]) {
+                ProfileScenario s;
+                s.id = e.value("id", std::string());
+                if (s.id.empty() || s.id.size() > 16) return bad("profile scenario id invalid");
+                const std::string v = e.value("verdict", std::string("incomplete"));
+                s.verdict = v == "pass" ? Verdict::Pass : (v == "fail" ? Verdict::Fail : Verdict::Incomplete);
+                s.metricsAvailable = e.value("metricsAvailable", false);
+                s.fps = e.value("fps", 0.0); s.p95FrameMs = e.value("p95FrameMs", 0.0); s.cpuPct = e.value("cpuPct", 0.0);
+                s.workingSetBytes = e.value("workingSetBytes", static_cast<std::uint64_t>(0));
+                p.scenarios.push_back(s);
+            }
+        }
+    } catch (...) {
+        return bad("profile fields have the wrong type");
     }
     return p;
 }

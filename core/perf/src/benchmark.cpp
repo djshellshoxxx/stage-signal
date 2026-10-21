@@ -301,7 +301,9 @@ json gatesToJson(const GateReport& g) {
 
 std::string environmentJson(const BenchEnvironment& env) { return envToJson(env).dump(); }
 
-std::string SuiteReport::profileHash() const { return Sha256::hashHex(environmentJson(env)); }
+std::string environmentHash(const BenchEnvironment& env) { return Sha256::hashHex(environmentJson(env)); }
+
+std::string SuiteReport::profileHash() const { return environmentHash(env); }
 
 std::string toJson(const SuiteReport& r, int indent) {
     json j;
