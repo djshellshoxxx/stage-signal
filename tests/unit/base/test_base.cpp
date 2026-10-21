@@ -72,3 +72,24 @@ TEST_CASE("AudioBlock view exposes frames") {
     CHECK(b.frames() == 480);
     CHECK(b.view().frames == 480);
 }
+
+#include "ss/base/sha256.hpp"
+#include "ss/base/utf8.hpp"
+TEST_CASE("SHA-256 matches NIST vectors") {
+    CHECK(Sha256::hashHex(std::string("abc")) == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    CHECK(Sha256::hashHex(std::string("")) == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    CHECK(Sha256::hashHex(std::string("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")) ==
+          "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1");
+    Sha256 s; std::string chunk(1000, 'a');
+    for (int i = 0; i < 1000; ++i) s.update(chunk);
+    CHECK(Sha256::hex(s.finish()) == "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0");
+}
+TEST_CASE("UTF-8 validation and counting") {
+    CHECK(utf8::countCodePoints("abc") == 3);
+    CHECK(utf8::countCodePoints("h\xC3\xA9llo") == 5);                 // e-acute
+    CHECK(utf8::countCodePoints("\xF0\x9F\x8E\xB5") == 1);             // musical note U+1F3B5
+    CHECK(utf8::countCodePoints("\xC0\xAF") == -1);                    // overlong
+    CHECK(utf8::countCodePoints("\xED\xA0\x80") == -1);                // surrogate
+    CHECK(utf8::countCodePoints("\xE2\x82") == -1);                    // truncated
+    CHECK(utf8::isValid(""));
+}
