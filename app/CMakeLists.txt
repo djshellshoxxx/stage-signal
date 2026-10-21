@@ -28,7 +28,8 @@ target_sources(StageSignal PRIVATE ${SS_APP_SOURCES})
 target_include_directories(StageSignal PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Source)
 target_compile_definitions(StageSignal PUBLIC
   JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0
-  JUCE_USE_CAMERA=1 JUCE_STRICT_REFCOUNTEDPOINTER=1)
+  JUCE_USE_CAMERA=1 JUCE_STRICT_REFCOUNTEDPOINTER=1
+  JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1)  # app-shell D-SHELL-01: StageSignalApp replaces the stock holder
 target_compile_features(StageSignal PUBLIC cxx_std_17)
 
 # Core modules linked in as they land (each is portable and JUCE-free).
