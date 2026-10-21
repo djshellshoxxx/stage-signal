@@ -149,7 +149,8 @@ TEST_CASE("REQ-S14: structural and limit violations are rejected before state is
         CHECK(showFromJson(j.dump()).ok());
     }
     SUBCASE("too many scenes / messages / midi / patches") {
-        for (auto [key, count] : {std::pair<const char*, int>{"scenes", 1001}, {"messages", 257}, {"midi", 513}, {"patches", 257}}) {
+        for (const auto& kc : {std::pair<const char*, int>{"scenes", 1001}, {"messages", 257}, {"midi", 513}, {"patches", 257}}) {
+            const char* key = kc.first; const int count = kc.second;
             auto j = fx::toJ(fx::sampleDoc());
             j[key] = json::array();
             for (int i = 0; i < count; ++i) j[key].push_back({{"id", i}});
@@ -279,5 +280,7 @@ TEST_CASE("REQ-S13: peekSchema reads the version without building a document") {
     REQUIRE(v.ok());
     CHECK(v.value().major == model::kSchemaMajor);
     CHECK_FALSE(peekSchema("nope").ok());
-    CHECK_FALSE(peekSchema(R"({"schema":{"major":0,"minor":0}})").ok());
+    CHECK_FALSE(peekSchema(R"({"format":"stagesignal-show"})").ok());
+    CHECK_FALSE(peekSchema(R"({"schema":{"major":-1,"minor":0}})").ok());
+    CHECK(peekSchema(R"({"schema":{"major":0,"minor":3}})").value().major == 0);   // legacy pre-release schema, migratable
 }

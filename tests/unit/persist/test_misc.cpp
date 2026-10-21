@@ -13,12 +13,13 @@ using nlohmann::json;
 
 // ---- migration ---------------------------------------------------------------------------------
 namespace {
-// A fake "schema 0 -> 1" migration for the framework tests: v0 files call the scenes list "visuals".
-MigrationRegistry fakeRegistry() {
+// Fake legacy "schema 0" format: the scene list was called "visuals". Migration 0 -> 1 renames it.
+MigrationRegistry legacyRegistry(int* calls = nullptr) {
     MigrationRegistry r;
     MigrationStep s;
     s.fromMajor = 0; s.toMajor = 1; s.description = "0->1 rename visuals to scenes";
-    s.apply = [](const std::string& in) -> Result<std::string> {
+    s.apply = [calls](const std::string& in) -> Result<std::string> {
+        if (calls) ++*calls;
         json j = json::parse(in, nullptr, false);
         if (j.is_discarded()) return makeError(ErrorCategory::DecodeFailure, "bad");
         if (j.contains("visuals")) { j["scenes"] = j["visuals"]; j.erase("visuals"); }
@@ -28,69 +29,90 @@ MigrationRegistry fakeRegistry() {
     r.add(std::move(s));
     return r;
 }
-// migration for a hypothetical future: 1 -> 2 (used to prove "newer is never touched")
-std::string oldFormatFile() {
-    json j = fx::toJ(fx::sampleDoc("legacy"));
+std::string legacyFileBytes(const std::string& name) {
+    json j = fx::toJ(fx::sampleDoc(name));
     j["visuals"] = j["scenes"]; j.erase("scenes");
     j["schema"]["major"] = 0;
-    return j.dump();
+    return makeEnvelope(j.dump(), "save", 1);
 }
 }  // namespace
 
-TEST_CASE("REQ-X01: migration copies the original to a backup before anything else") {
-    // schema "0" cannot be produced by the current writer, so exercise the framework with a registry that starts at 0
-    // by planning against target 1 and a file whose schema.major is 0 is rejected by peekSchema; use major 1 -> target 2.
-    MemFileSystem fs; fs.createDirs("/s");
-    MigrationRegistry reg;
-    MigrationStep s;
-    s.fromMajor = 1; s.toMajor = 2; s.description = "1->2";
-    s.apply = [](const std::string& in) -> Result<std::string> { json j = json::parse(in); j["schema"]["major"] = 2; return j.dump(); };
-    reg.add(s);
-    const std::string original = makeEnvelope(showToJson(fx::sampleDoc("old")).value(), "save", 1);
-    fs.put("/s/a.show", original);
-    auto plan = planMigration("/s/a.show", SchemaVersion{1, 0}, reg, fs, 2);
-    REQUIRE(plan.ok());
-    CHECK(plan.value().needed);
-    CHECK(plan.value().stepDescriptions == std::vector<std::string>{"1->2"});
-    CHECK(plan.value().backupPath == "/s/a.show.premigrate-v1");
-
-    // backup failure aborts before any migration step runs
-    int calls = 0;
-    MigrationRegistry counting;
-    MigrationStep c = s; c.apply = [&](const std::string& in) -> Result<std::string> { ++calls; return s.apply(in); };
-    counting.add(c);
-    MemFileSystem::Fault f; f.atOp = 1; f.kind = MemFileSystem::FaultKind::DiskFull;
-    fs.resetOpCount(); fs.setFault(f);
-    const auto body = openEnvelope(original).value();
-    CHECK_FALSE(applyMigration(fs, plan.value(), original, body, counting).ok());
-    CHECK(calls == 0);
-    fs.clearFault();
-    fs.remove(plan.value().backupPath);
-
-    // the migrated document only validates once the schema major matches this build; here the target (2) is not
-    // supported by showFromJson, so applyMigration reports SchemaUnsupported AFTER having made the backup.
-    const auto res = applyMigration(fs, plan.value(), original, body, counting);
-    CHECK(calls == 1);
-    CHECK_FALSE(res.ok());
-    CHECK(fs.get(plan.value().backupPath) == original);   // backup is byte-identical and was made first
-    CHECK(fs.get("/s/a.show") == original);                // source never modified
-}
-
-TEST_CASE("REQ-X01: migration framework upgrades an older file into the current schema in memory") {
+TEST_CASE("REQ-X01: an older file is migrated in memory after its original is backed up; the source is never modified") {
     MemFileSystem fs; fs.createDirs("/s");
     FakeClock clock;
-    // peekSchema rejects major 0, so register the legacy format as major 1 -> 1 style by hand: use a custom flow.
-    const auto reg = fakeRegistry();
-    const std::string text = oldFormatFile();
-    // direct step test: the registered step produces a loadable current-schema document
-    const MigrationStep* step = reg.from(0);
-    REQUIRE(step != nullptr);
-    auto out = step->apply(text);
-    REQUIRE(out.ok());
-    auto parsed = showFromJson(out.value());
-    REQUIRE(parsed.ok());
-    CHECK(parsed.value().doc.scenes.size() == 2);
-    CHECK(reg.from(7) == nullptr);
+    const std::string original = legacyFileBytes("legacy");
+    fs.put("/s/a.show", original);
+    ShowStore store(fs, clock, "/s/a.show");
+    int calls = 0;
+    const auto reg = legacyRegistry(&calls);
+    auto r = store.load(&reg);
+    REQUIRE(r.ok());
+    CHECK(calls == 1);
+    CHECK(r.value().migrated);
+    CHECK(r.value().parsed.doc.name == "legacy");
+    CHECK(r.value().parsed.doc.scenes.size() == 2);
+    CHECK(r.value().parsed.extras.migrationHistory == std::vector<std::string>{"0->1"});
+    CHECK(r.value().migrationBackupPath == "/s/a.show.premigrate-v0");
+    CHECK(fs.get(r.value().migrationBackupPath) == original);   // byte-identical backup
+    CHECK(fs.get("/s/a.show") == original);                      // not touched by loading
+    REQUIRE_FALSE(r.value().notes.empty());
+    // saving writes the new format, keeps the old one as backup 1, and records the history
+    JsonWriteOptions opt; opt.extras = r.value().parsed.extras;
+    REQUIRE(store.save(r.value().parsed.doc, opt).ok());
+    CHECK(fs.get(store.backupPath(1)) == original);
+    auto again = store.load();                                   // no registry needed any more
+    REQUIRE(again.ok());
+    CHECK_FALSE(again.value().migrated);
+    CHECK(again.value().parsed.extras.migrationHistory == std::vector<std::string>{"0->1"});
+}
+
+TEST_CASE("REQ-X01: without a migration path an older file is reported, not guessed at") {
+    MemFileSystem fs; fs.createDirs("/s");
+    FakeClock clock;
+    fs.put("/s/a.show", legacyFileBytes("legacy"));
+    ShowStore store(fs, clock, "/s/a.show");
+    const auto r = store.load();                 // no registry
+    REQUIRE_FALSE(r.ok());
+    CHECK(r.error().category == ErrorCategory::SchemaUnsupported);
+    CHECK_FALSE(fs.exists("/s/a.show.premigrate-v0"));   // nothing was backed up or changed
+}
+
+TEST_CASE("REQ-X01: migration aborts before any step runs when the backup cannot be written") {
+    MemFileSystem fs; fs.createDirs("/s");
+    FakeClock clock;
+    const std::string original = legacyFileBytes("legacy");
+    fs.put("/s/a.show", original);
+    ShowStore store(fs, clock, "/s/a.show");
+    int calls = 0;
+    const auto reg = legacyRegistry(&calls);
+    fs.resetOpCount();
+    MemFileSystem::Fault f; f.atOp = 1; f.kind = MemFileSystem::FaultKind::DiskFull;
+    fs.setFault(f);
+    const auto r = store.load(&reg);
+    CHECK_FALSE(r.ok());
+    CHECK(calls == 0);
+    CHECK(fs.get("/s/a.show") == original);
+}
+
+TEST_CASE("REQ-X01: a failing migration step leaves the source and the backup intact") {
+    MemFileSystem fs; fs.createDirs("/s");
+    FakeClock clock;
+    const std::string original = legacyFileBytes("legacy");
+    fs.put("/s/a.show", original);
+    ShowStore store(fs, clock, "/s/a.show");
+    MigrationRegistry reg;
+    MigrationStep s; s.fromMajor = 0; s.toMajor = 1; s.description = "bad";
+    s.apply = [](const std::string&) -> Result<std::string> { return makeError(ErrorCategory::InternalFault, "boom"); };
+    reg.add(s);
+    CHECK_FALSE(store.load(&reg).ok());
+    CHECK(fs.get("/s/a.show") == original);
+    CHECK(fs.get("/s/a.show.premigrate-v0") == original);
+    // a step that produces the wrong schema is rejected too
+    MigrationRegistry wrong;
+    MigrationStep w = s; w.apply = [](const std::string& in) -> Result<std::string> { return in; };
+    fs.remove("/s/a.show.premigrate-v0");
+    wrong.add(w);
+    CHECK_FALSE(store.load(&wrong).ok());
 }
 
 TEST_CASE("REQ-X01: a newer-format file is never migrated, backed up over, or overwritten") {
@@ -106,17 +128,24 @@ TEST_CASE("REQ-X01: a newer-format file is never migrated, backed up over, or ov
     auto cur = planMigration("/s/a.show", SchemaVersion{1, 0}, reg, fs);
     REQUIRE(cur.ok());
     CHECK_FALSE(cur.value().needed);
+    CHECK(cur.value().backupPath.empty());
 }
 
-TEST_CASE("REQ-X01: pre-migration backups never overwrite an earlier backup") {
+TEST_CASE("REQ-X01: multi-step migration chains and pre-migration backups never overwrite an earlier backup") {
     MemFileSystem fs; fs.createDirs("/s");
     MigrationRegistry reg;
-    MigrationStep s; s.fromMajor = 1; s.toMajor = 2; s.apply = [](const std::string& in) -> Result<std::string> { return in; };
-    reg.add(s);
+    for (std::uint32_t from : {1u, 2u}) {
+        MigrationStep s; s.fromMajor = from; s.toMajor = from + 1; s.description = std::to_string(from) + "->" + std::to_string(from + 1);
+        s.apply = [](const std::string& in) -> Result<std::string> { return in; };
+        reg.add(s);
+    }
     fs.put("/s/a.show.premigrate-v1", "earlier");
-    auto plan = planMigration("/s/a.show", SchemaVersion{1, 0}, reg, fs, 2);
+    auto plan = planMigration("/s/a.show", SchemaVersion{1, 0}, reg, fs, 3);
     REQUIRE(plan.ok());
+    CHECK(plan.value().needed);
+    CHECK(plan.value().stepDescriptions == std::vector<std::string>{"1->2", "2->3"});
     CHECK(plan.value().backupPath == "/s/a.show.premigrate-v1-2");
+    CHECK(reg.from(7) == nullptr);
 }
 
 // ---- local settings ----------------------------------------------------------------------------

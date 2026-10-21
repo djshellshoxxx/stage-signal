@@ -484,7 +484,6 @@ Result<SchemaVersion> readSchema(const json& j) {
         v.major = static_cast<std::uint32_t>(getU(*s, "major", 1000000, 0));
         v.minor = static_cast<std::uint32_t>(getU(*s, "minor", 1000000, 0));
     } catch (const Fail& f) { return makeError(f.cat, f.msg); }
-    if (v.major == 0) return makeError(ErrorCategory::InvalidArgument, "bad schema version");
     return v;
 }
 
