@@ -79,8 +79,8 @@ public:
     ss::Status start();               // idempotent
     void stop();                      // idempotent
     bool started() const { return started_; }
-    std::vector<StepRecord> startupLog() const { return startLog_; }
-    std::vector<StepRecord> shutdownLog() const { return stopLog_; }
+    std::vector<StepRecord> startupLog() const { std::lock_guard<std::mutex> g(logMutex_); return startLog_; }
+    std::vector<StepRecord> shutdownLog() const { std::lock_guard<std::mutex> g(logMutex_); return stopLog_; }
 
     // ---- wiring (before start()) ---------------------------------------------------------------------------
     void addAudioConsumer(IProcessedAudioConsumer* c) { analysis_.addConsumer(c); }
@@ -147,6 +147,7 @@ private:
     ss::Status shellOpenPath(const std::string& path);
     ss::Status shellSavePath(const std::string& path);
     void shellRegisterCommands();
+    void shellPushMediaConfig();                                      // builds MediaConfig from settings/prefs, hands it to the worker
     void controlAdapt(ss::Ns now);
     void shellMessageTick();
     void shellMusicTick(const ss::show::ShowSnapshot& snap, const ss::FeatureSnapshot& f, ss::Ns now);
@@ -162,6 +163,7 @@ private:
     AdapterSet adapters_;
     AppConfig cfg_;
     bool started_ = false;
+    mutable std::mutex logMutex_;                       // CONTROL reads the startup log while start() is still appending
     std::vector<StepRecord> startLog_, stopLog_;
 
     // graph (declaration order = construction order; destruction is reverse and stop() has already run)
@@ -183,7 +185,7 @@ private:
     std::unordered_map<std::uint16_t, CommandHandler> commandHandlers_;
     PerfView perf_;                                    // CONTROL thread only
     std::unique_ptr<Shell> shell_;
-    std::atomic<bool> recovery_{false};
+    std::atomic<bool> recovery_{false}, recoveryPausePending_{false};
     std::atomic<bool> childrenKilled_{false};
     std::thread stage2Worker_;
     std::uint64_t onsetCursor_ = 0;                    // CONTROL thread: analysis onset drain

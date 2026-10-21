@@ -24,7 +24,15 @@ int runSelfTests(const std::string& selector) {
     const std::string want = selector.empty() ? "smoke" : selector;
     int failed = 0, ran = 0;
     for (const auto& t : reg.all()) {
-        if (want != "all" && want != t.first) continue;
+        bool match = want == "all";
+        for (std::size_t from = 0; !match && from <= want.size();) {          // "smoke,shell": comma list; "shell" = every "shell: ..." test
+            std::size_t to = want.find(',', from);
+            if (to == std::string::npos) to = want.size();
+            const std::string one = want.substr(from, to - from);
+            match = one == t.first || t.first.rfind(one + ":", 0) == 0 || t.first.find(one) != std::string::npos;
+            from = to + 1;
+        }
+        if (!match) continue;
         ++ran;
         SelfTestResult r;
         try { r = t.second(); }

@@ -17,11 +17,32 @@ MediaTextPanel::MediaTextPanel(UiModel& model) : PanelBase(model, "Media / Text"
     mediaTitle_.setText("Media", juce::dontSendNotification);
     styleLabel(mediaCount_, false);
     styleLabel(mediaNote_, false);
-    mediaNote_.setText("Import is not in this build yet. Files are not read.", juce::dontSendNotification);
-    import_.setEnabled(false);
-    import_.setTooltip("Import needs the media worker, which is not in this build yet.");
+    mediaNote_.setText("Still images only (PNG, JPEG, BMP; a GIF shows its first frame). Up to three.", juce::dontSendNotification);
+    import_.setTooltip("Choose a still image to show over the program.");
+    import_.onClick = [this] {
+        if (imported_ >= 3) { status_.setText("Three images are loaded. Remove one first.", juce::dontSendNotification); return; }
+        chooser_ = std::make_unique<juce::FileChooser>("Choose an image", juce::File(), "*.png;*.jpg;*.jpeg;*.bmp;*.gif");
+        chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this](const juce::FileChooser& fc) {
+            const auto f = fc.getResult();
+            if (f == juce::File()) return;
+            AppCommand c;
+            c.kind = AppCommandKind::ImportMedia;
+            c.text = f.getFullPathName().toStdString();
+            c.a = imported_;
+            if (overlay::sendCommand(model_, c, &cmdCorrelation_)) status_.setText("Importing.", juce::dontSendNotification);
+            else status_.setText("Too many requests waiting. Try again in a moment.", juce::dontSendNotification);
+        });
+    };
+    remove_.setTooltip("Remove the last imported image.");
     remove_.setEnabled(false);
-    remove_.setTooltip("Nothing to remove yet.");
+    remove_.onClick = [this] {
+        if (imported_ <= 0) return;
+        AppCommand c;
+        c.kind = AppCommandKind::RemoveMedia;
+        c.a = imported_ - 1;
+        if (overlay::sendCommand(model_, c, &cmdCorrelation_)) --imported_;
+        remove_.setEnabled(imported_ > 0);
+    };
 
     styleLabel(textTitle_, true);
     textTitle_.setText("Text", juce::dontSendNotification);
@@ -44,10 +65,16 @@ MediaTextPanel::MediaTextPanel(UiModel& model) : PanelBase(model, "Media / Text"
     styleLabel(previewLabel_, false);
     previewLabel_.setVisible(false);
     publish_.setEnabled(false);
-    publish_.setTooltip("Publishing a draft is not wired yet. Preview only shows the text.");
+    publish_.setTooltip("Preview the text first. Publish sends exactly what you previewed.");
+    publish_.onClick = [this] {
+        AppCommand c;
+        c.kind = AppCommandKind::PublishText;
+        c.text = previewedText_;
+        if (overlay::sendCommand(model_, c, &cmdCorrelation_)) status_.setText("Publishing.", juce::dontSendNotification);
+        else status_.setText("Too many requests waiting. Try again in a moment.", juce::dontSendNotification);
+    };
     styleLabel(publishNote_, false);
-    publishNote_.setText("Publish sends the text to the audience outputs. It is not wired yet in this build.",
-                         juce::dontSendNotification);
+    publishNote_.setText("Preview first. Publish shows the previewed text on the program output.", juce::dontSendNotification);
     clear_.onClick = [this] {
         status_.setText(juce::String(overlay::sendAction(model_, ss::ActionId::TextClear, 0.0, kAllOutputs,
                                                          &clearCorrelation_)),
@@ -79,6 +106,7 @@ void MediaTextPanel::updateCount() {
 void MediaTextPanel::setPreview(bool on) {
     previewing_ = on;
     preview_.setButtonText(on ? "Hide preview" : "Preview");
+    publish_.setEnabled(on && draft_.getText().isNotEmpty());
     if (on) {
         previewedText_ = draft_.getText().toStdString();
         previewLabel_.setText("PREVIEW\n" + juce::String(previewedText_), juce::dontSendNotification);
@@ -120,6 +148,15 @@ void MediaTextPanel::resized() {
 void MediaTextPanel::uiSnapshotChanged(const UiSnapshot& s) {
     mediaCount_.setText(juce::String(static_cast<int>(s.media.loadedItems)) + " items loaded.", juce::dontSendNotification);
     if (!s.media.note.empty()) mediaNote_.setText(juce::String(s.media.note), juce::dontSendNotification);
+}
+
+void MediaTextPanel::uiCommandOutcome(const CommandOutcome& o) {
+    if (cmdCorrelation_ == 0 || o.correlationId != cmdCorrelation_) return;
+    cmdCorrelation_ = 0;
+    if (o.kind == AppCommandKind::ImportMedia) {
+        if (o.ok) { ++imported_; remove_.setEnabled(true); }
+    }
+    status_.setText(juce::String(o.message.empty() ? (o.ok ? "Done." : "Not done. Try again.") : o.message), juce::dontSendNotification);
 }
 
 void MediaTextPanel::uiActionOutcome(const ActionOutcome& o) {

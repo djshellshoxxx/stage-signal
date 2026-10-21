@@ -209,8 +209,8 @@ SelfTestResult audioNoDevice() {
     JuceAudioSource b(clock, mapper);
     b.setSink(&sink);
     b.simulateStarted(48000.0, 256);
-    std::vector<float> l(256), r(256);
-    for (int i = 0; i < 256; ++i) { l[static_cast<std::size_t>(i)] = static_cast<float>(i); r[static_cast<std::size_t>(i)] = -static_cast<float>(i); }
+    std::vector<float> l(1000), r(1000);        // sized for the 1000-frame oversize callback below
+    for (int i = 0; i < 1000; ++i) { l[static_cast<std::size_t>(i)] = static_cast<float>(i); r[static_cast<std::size_t>(i)] = -static_cast<float>(i); }
     const float* chans[2] = {l.data(), r.data()};
     b.simulateBlock(chans, 2, 256);
     REQUIRE_T(sink.blocks == 1 && sink.ch == 2 && sink.frames == 256 && sink.rate == 48000, "block not delivered");

@@ -96,13 +96,13 @@ Updated by shell-integration, 21 Oct 2026. Detail and test names: `app-shell.md`
 - **Start steps** all run for real now except step 7 (UI windows are created by the host application, logged Stubbed) and step 12 (media, owned by the media worker, logged Stubbed). Settings, `running.lock`, Recovery mode, persist-backed show load, 30 s autosave, `--show` and `--safe`, single-instance lock and quit confirmation exist. With an empty `AppConfig::dataDir` (self-tests, CI) nothing is read or written.
 - Router, palette keymap and perf adaptation are instantiated; the keymap used by the Live-tab shortcuts is still the static default and audience windows do not read the router yet.
 - `Engine/DesktopAdapters.cpp` returns the real desktop adapters (see `app-adapters.md`); the controller now feeds them (MIDI actions, mapping table, lighting patch and destination). Real hardware is untested.
-- `MediaWorker`: owned by another worker, not touched. Text publish, media import and removal answer "needs the media worker".
+- `MediaWorker` (media worker's code) is wired: native process supervisor, frame provider, config commands, markers, import/remove/publish text, two-step broadcast start.
 - Analysis still wakes by a 2 ms poll. The onset drain exists (`onsetsSince`), so a slow consumer no longer misses onsets.
 - Every output has its own compositor; `FrameExchange` is a frame pool, not a `LatestMailbox`.
 - Shutdown stage 2 has a real timeout with a helper thread; other stages are still timed after the fact.
 - Plugin mode: versioned state blob and Secondary-instance mode are implemented and self-tested, but no CLAP host was used. `juce_video` is still not linked (camera).
 - Allocation: `shell: callback no alloc` proves the `AudioIngress::pushBlock` entry only (standalone build, Linux). Callback time and behaviour under load are not measured.
-- Phrase-quantised auto scene changes are not done (no hook in `core/show`); phrase position, key colour and beat looks are published and shown.
+- Phrase-quantised auto scene changes are not possible without a hook in `core/show` (documented in app-shell); phrase position, key colour and beat looks are published and shown.
 - Not done: window position persistence, wizard completion persistence, display roles read-back, `shell: callback worst time`, `safety latch beats stalled control`, `no sockets at idle`, `clap passthrough`.
 
 ## 7. How this was proven

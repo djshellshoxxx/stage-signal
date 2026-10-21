@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <set>
 #include <juce_core/juce_core.h>
@@ -357,10 +358,7 @@ ss::Status AppController::shellLoadShow() {
         sh.recoveryView.text = std::string("The last session did not end cleanly. The sample show is loaded and paused. Lighting, MIDI output, ") +
                                "recording and broadcast are off. Nothing was restored automatically.";
         if (sh.haveProposal) sh.recoveryView.text += " An autosave from " + sh.recoveryView.autosaveTime + " is available.";
-        ss::Action pause;
-        pause.actionId = ss::id(ss::ActionId::Pause);
-        pause.source = ss::ActionSource::Ui;                     // queued; CONTROL applies it on its first pass
-        ui_.submitAction(pause);
+        recoveryPausePending_.store(true);                       // CONTROL pauses the show once it is ticking
         return st;
     }
 
@@ -420,6 +418,7 @@ void AppController::shellConfigureEngines(const ss::model::ShowDocument& doc) {
         for (const auto& m : maps) if (!m.deviceName.empty()) {}    // device names are matched by the engine itself
     }
     lighting_.setRateHz(ls.rateHz);
+    shellPushMediaConfig();
     // The cid is per installation: kept in prefs so the sACN source identity is stable across runs.
     ss::lighting::sacn::Cid cid{};
     {
@@ -722,6 +721,7 @@ void AppController::shellRegisterCommands() {
             shell_->endpoint.host = c.text; shell_->endpoint.path = c.text2; shell_->endpoint.port = static_cast<int>(c.a);
         }
         shellSavePrefs();
+        shellPushMediaConfig();
         return ss::okStatus();
     });
     registerCommandHandler(AppCommandKind::SetBroadcastKey, [this, reject](const AppCommand& c) {
@@ -734,7 +734,7 @@ void AppController::shellRegisterCommands() {
         bool have = false;
         for (const auto& r : refs) if (r.ref == "secret:broadcast-key") have = true;
         if (!have) refs.push_back({"Broadcast key", "secret:broadcast-key"});
-        return ss::okStatus();
+        return ss::okStatus();                                   // the worker resolves "ref:broadcast-key" itself at session start
     });
 
     // ---- media and text: the engine is the media worker's. Said plainly instead of pretending. -------------------
@@ -743,9 +743,30 @@ void AppController::shellRegisterCommands() {
             return ss::Status(ss::makeError(ss::ErrorCategory::UnsupportedCapability, std::string(what) + " needs the media worker, which is not in this build yet."));
         };
     };
-    registerCommandHandler(AppCommandKind::PublishText, needsMedia("Publishing text"));
-    registerCommandHandler(AppCommandKind::ImportMedia, needsMedia("Importing media"));
-    registerCommandHandler(AppCommandKind::RemoveMedia, needsMedia("Removing media"));
+    (void) needsMedia;
+    registerCommandHandler(AppCommandKind::PublishText, [this, reject](const AppCommand& c) {
+        if (cfg_.secondary) return reject(kLightingNoteSecondary);
+        if (c.text.empty()) return reject("Type the message first.");
+        return media_.setTextBanner(c.text);
+    });
+    registerCommandHandler(AppCommandKind::ImportMedia, [this, reject](const AppCommand& c) {
+        if (cfg_.secondary) return reject(kLightingNoteSecondary);
+        if (c.a < 0 || c.a > 2) return reject("Three images at most.");
+        std::string note;
+        auto st = media_.importImage(static_cast<std::size_t>(c.a), c.text, &note);
+        if (!st.ok()) return st;
+        diag_.post(DiagLevel::Info, "media", note.empty() ? "Image imported" : note);
+        return st;
+    });
+    registerCommandHandler(AppCommandKind::RemoveMedia, [this, reject](const AppCommand& c) {
+        if (c.a < 0 || c.a > 2) return reject("Pick an image slot between 0 and 2.");
+        media_.layers().clearSlot(static_cast<std::size_t>(c.a));
+        return ss::okStatus();
+    });
+    registerActionHandler(ss::ActionId::TextClear, [this](const ss::Action&) {
+        media_.layers().clearSlot(MediaLayers::kMax - 1);               // the text banner slot
+        ss::ActionResult r; r.accepted = true; return r;
+    });
     registerCommandHandler(AppCommandKind::SetRecordFolder, [this, reject](const AppCommand& c) {
         if (c.text.empty()) return reject("Choose a folder first.");
         if (!adapters_.files->folderWritable(c.text)) return reject("That folder cannot be written to.");
@@ -754,6 +775,26 @@ void AppController::shellRegisterCommands() {
             shell_->settings.recordingFolder = c.text;
         }
         shellSaveSettings();
+        shellPushMediaConfig();
+        return ss::okStatus();
+    });
+    registerCommandHandler(AppCommandKind::SetFfmpegPath, [this](const AppCommand& c) {
+        { std::lock_guard<std::mutex> g(shell_->m); shell_->prefs.set("media.ffmpeg", c.text); }
+        shellSavePrefs();
+        shellPushMediaConfig();
+        return ss::okStatus();
+    });
+    registerCommandHandler(AppCommandKind::ConfigureMedia, [this, reject](const AppCommand& c) {
+        if (!c.text2.empty() && !adapters_.files->folderWritable(c.text2)) return reject("That folder cannot be written to.");
+        {
+            std::lock_guard<std::mutex> g(shell_->m);
+            shell_->prefs.set("media.ffmpeg", c.text);
+            if (!c.text2.empty()) shell_->settings.recordingFolder = c.text2;
+            if (c.a > 0) shell_->prefs.set("media.output", std::to_string(c.a));
+            shell_->prefs.set("media.video", c.b ? "1" : "0");
+        }
+        shellSavePrefs(); shellSaveSettings();
+        shellPushMediaConfig();
         return ss::okStatus();
     });
 
@@ -813,7 +854,7 @@ void AppController::shellRegisterCommands() {
         for (const auto& e : journal_.snapshot()) ev += std::string(ss::diag::kindName(e.kind)) + " " + e.detail + "\n";
         comp.addItem(ss::diag::BundleCategory::EventJournal, "events.txt", ev);
         std::string st;
-        for (const auto& r : startLog_) st += r.name + " " + (r.status == StepStatus::Failed ? "failed" : r.status == StepStatus::Stubbed ? "stubbed" : "done") + "\n";
+        for (const auto& r : startupLog()) st += r.name + " " + (r.status == StepStatus::Failed ? "failed" : r.status == StepStatus::Stubbed ? "stubbed" : "done") + "\n";
         comp.addItem(ss::diag::BundleCategory::SystemSummary, "startup.txt", st);
         {
             std::lock_guard<std::mutex> g(shell_->m);
@@ -841,6 +882,24 @@ void AppController::shellRegisterCommands() {
         return lighting_.arm();
     });
     (void) sh;
+}
+
+void AppController::shellPushMediaConfig() {
+    MediaConfig mc;
+    {
+        std::lock_guard<std::mutex> g(shell_->m);
+        mc.ffmpegPath = shell_->prefs.get("media.ffmpeg");
+        mc.outputDir = shell_->settings.recordingFolder;
+        mc.showName = shell_->showName.empty() ? std::string("show") : shell_->showName;
+        mc.recordVideo = shell_->prefs.get("media.video", "1") == "1";
+        const int out = std::atoi(shell_->prefs.get("media.output", "1").c_str());
+        mc.programOutput = static_cast<ss::OutputId>(out > 0 ? out : 1);
+        mc.broadcast.host = shell_->endpoint.host;
+        mc.broadcast.path = shell_->endpoint.path;
+        mc.broadcast.port = static_cast<std::uint32_t>(shell_->endpoint.port > 0 ? shell_->endpoint.port : 0);
+        mc.broadcast.streamKey.handle = "ref:broadcast-key";
+    }
+    media_.configure(mc);
 }
 
 // ============================================================================================================

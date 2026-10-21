@@ -1,5 +1,6 @@
 #include "App/AppController.h"
 #include <chrono>
+#include <cstdio>
 #include <future>
 #include <juce_core/juce_core.h>
 #include "App/SampleShow.h"
@@ -39,14 +40,21 @@ double msSince(std::chrono::steady_clock::time_point t0) {
 // ---- worker thread wrapper ------------------------------------------------------------------------------
 class AppController::Loop final : public juce::Thread {
 public:
-    Loop(const char* name, ThreadId id, Heartbeats& hb, std::function<void(Loop&)> body)
-        : juce::Thread(name), id_(id), hb_(hb), body_(std::move(body)) {}
+    Loop(const char* name, ThreadId id, Heartbeats& hb, std::function<void(Loop&)> body, std::function<void(const std::string&)> onError)
+        : juce::Thread(name), id_(id), hb_(hb), body_(std::move(body)), onError_(std::move(onError)) {}
     void run() override {
         hb_.markRunning(id_, true);
-        body_(*this);
+        // juce::Thread swallows exceptions and ends the thread silently. A worker must not vanish: report it and run again.
+        while (!threadShouldExit()) {
+            try { body_(*this); break; }
+            catch (const std::exception& e) { if (onError_) onError_(std::string(getThreadName().toRawUTF8()) + " thread error: " + e.what()); }
+            catch (...) { if (onError_) onError_(std::string(getThreadName().toRawUTF8()) + " thread error"); }
+            wait(50);
+        }
         hb_.markRunning(id_, false);
     }
 private:
+    std::function<void(const std::string&)> onError_;
     ThreadId id_;
     Heartbeats& hb_;
     std::function<void(Loop&)> body_;
@@ -69,6 +77,7 @@ AppController::AppController(AdapterSet adapters, AppConfig cfg)
     recovery_.store(cfg_.recovery);
     render_.setTargetFps(cfg_.renderFps);
     render_.setLayerSource(&media_);
+    media_.setFrameProvider([this](OutputId id) { return render_.latestFrame(id); });
     analysis_.addConsumer(&media_);
     ui_.setPollHook([this] { shellMessageTick(); });
     ui_.setFrameSource([this](OutputId id) { return render_.latestFrame(id); });
@@ -101,8 +110,8 @@ AppController::AppController(AdapterSet adapters, AppConfig cfg)
             return media_.handleAction(a);
         });
     registerActionHandler(ss::ActionId::AddMarker, [this](const ss::Action& a) {
-        diag_.post(DiagLevel::Info, "marker", "Marker");
-        (void) a;
+        diag_.post(DiagLevel::Info, "marker", "Marker");        // journal marker; the recorder also writes one when recording
+        media_.handleAction(a);
         ss::ActionResult r; r.accepted = true; return r;
     });
 
@@ -144,7 +153,7 @@ ss::Status AppController::runStartStep(const char* name, bool stubbed, const std
     r.ms = msSince(t0);
     r.status = !st.ok() ? StepStatus::Failed : (stubbed ? StepStatus::Stubbed : StepStatus::Done);
     if (!st.ok()) r.detail = st.error().detail;
-    startLog_.push_back(r);
+    { std::lock_guard<std::mutex> g(logMutex_); startLog_.push_back(r); }
     diag_.post(st.ok() ? DiagLevel::Info : DiagLevel::Error, r.name, r.detail.empty() ? (stubbed ? "stubbed" : "ok") : r.detail);
     if (!st.ok() && !fatal) return ss::okStatus();     // subsystem Unavailable, startup continues (section 5)
     return st;
@@ -152,7 +161,8 @@ ss::Status AppController::runStartStep(const char* name, bool stubbed, const std
 
 void AppController::startLoop(std::unique_ptr<Loop>& slot, const char* name, ThreadId id, bool highPriority,
                               void (AppController::*body)(Loop&)) {
-    slot = std::make_unique<Loop>(name, id, hb_, [this, body](Loop& l) { (this->*body)(l); });
+    slot = std::make_unique<Loop>(name, id, hb_, [this, body](Loop& l) { (this->*body)(l); },
+                                  [this](const std::string& what) { diag_.post(DiagLevel::Error, "thread", what); std::fprintf(stderr, "%s\n", what.c_str()); });
     slot->startThread(highPriority ? juce::Thread::Priority::high : juce::Thread::Priority::normal);
 }
 
@@ -165,7 +175,7 @@ bool AppController::stopLoop(std::unique_ptr<Loop>& slot, int timeoutMs) {
 
 ss::Status AppController::start() {
     if (started_) return ss::okStatus();
-    startLog_.clear();
+    { std::lock_guard<std::mutex> g(logMutex_); startLog_.clear(); }
     ss::Status st = ss::okStatus();
     auto step = [&](const char* name, bool stubbed, std::function<ss::Status()> fn, bool fatal = false) {
         if (!st.ok()) return;
@@ -217,7 +227,7 @@ ss::Status AppController::start() {
         return ss::okStatus();
     });
     // 12 Camera and media workers: idle, camera closed, publication off.
-    step("media", true, [&] { adapters_.camera->start(); return media_.start(); });
+    step("media", false, [&] { shellPushMediaConfig(); adapters_.camera->start(); return media_.start(); });
     // 13 Perf monitor: 1 Hz counter sampling runs inside the CONTROL loop. No benchmark runs automatically.
     step("perf", false, [] { return ss::okStatus(); });
     // 14 Ready. running.lock is not written yet (follow-up); stated, not faked.
@@ -237,14 +247,14 @@ void AppController::runStopStage(const char* name, int timeoutMs, const std::fun
     r.timedOut = !clean || r.ms > timeoutMs;
     r.status = StepStatus::Done;
     if (r.timedOut) r.detail = "timeout";
-    stopLog_.push_back(r);
+    { std::lock_guard<std::mutex> g(logMutex_); stopLog_.push_back(r); }
     diag_.post(r.timedOut ? DiagLevel::Warn : DiagLevel::Info, r.name + (r.timedOut ? ".timeout" : ""), "");
 }
 
 void AppController::stop() {
     const bool anyThread = control_ || analysisT_ || renderT_ || light_ || midiT_ || io_;
     if (!started_ && !anyThread) return;
-    stopLog_.clear();
+    { std::lock_guard<std::mutex> g(logMutex_); stopLog_.clear(); }
     runStopStage("stage1.disarm", 200, [&] {              // 1 disarm outward actions
         lighting_.disarm(); midi_.disableOutput(); media_.unpublishCamera(); return true;
     });
@@ -323,6 +333,10 @@ void AppController::showTick(ss::Ns now) {
     // Every onset since the last tick counts, even when the mailbox's edge latch was overwritten in between.
     if (analysis_.onsetsSince(onsetCursor_) > 0) f.onsetFired = true;
     auto snap = std::make_shared<ss::show::ShowSnapshot>(show_.tick(now, f));
+    if (recoveryPausePending_.load()) {                  // Recovery holds the show: repeat until the snapshot says paused
+        if (snap->paused || !recovery_.load()) recoveryPausePending_.store(false);
+        else { ss::Action p; p.actionId = ss::id(ss::ActionId::Pause); p.source = ss::ActionSource::System; show_.submit(p); }
+    }
     shellMusicTick(*snap, f, now);
     { std::lock_guard<std::mutex> g(shell_->m); shell_->history.offer(now, f, snap->outputs.empty() ? 0 : snap->outputs.front().sceneId); }
     for (const auto& ev : snap->events) {
@@ -378,7 +392,7 @@ void AppController::publishUi(ss::Ns now) {
     row("processes", adapters_.processes.get()); row("secrets", adapters_.secrets.get());
     s->recentDiag = diag_.recent();
     s->actionsPending = ui_.inbox().pending(); s->actionsDropped = ui_.inbox().dropped(); s->diagDropped = diag_.dropped();
-    for (const auto& r : startLog_) {
+    for (const auto& r : startupLog()) {
         const char* tag = r.status == StepStatus::Failed ? "failed" : (r.status == StepStatus::Stubbed ? "stubbed" : "done");
         s->startupSteps.push_back(r.name + " " + std::to_string(r.ms) + " ms " + tag);
     }

@@ -61,7 +61,9 @@ SelfTestResult smoke() {
     for (const auto& s : sl) if (s.status == StepStatus::Failed) return fail("startup step failed: " + s.name);
 
     // Run for 2 s with a sine flowing in through the fake audio source.
-    sleepMs(2000);
+    // Wait for the facts instead of a fixed sleep (a loaded CI machine can be slow to start threads).
+    if (!waitFor([&] { ss::FeatureSnapshot t; return c.latestFeatures(t) && !t.silent; }, 10000)) return fail("no FeatureSnapshot arrived");
+    if (!waitFor([&] { c.ui().poll(); auto sn = c.ui().snapshot(); return sn != nullptr && sn->audio.signalAlive && c.ui().latestFrame(1) != nullptr; }, 10000)) return fail("no UiSnapshot with live audio published");
 
     // 1 FeatureSnapshot arrived and reflects the sine (0.5 amplitude).
     ss::FeatureSnapshot fs;

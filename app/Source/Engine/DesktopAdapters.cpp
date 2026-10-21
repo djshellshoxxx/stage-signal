@@ -5,6 +5,7 @@
 #include "Engine/Desktop/JuceMidiProvider.h"
 #include "Engine/Desktop/TimestampMapperLinear.h"
 #include "Engine/Desktop/UdpPacketSink.h"
+#include "Engine/Media/NativeProcess.h"
 
 namespace ss::app {
 
@@ -27,6 +28,7 @@ AdapterSet makeDesktopAdapterSet() {
     s.perf = std::make_shared<ProcessPerfCounters>(s.clock);
     s.dialogs = std::make_shared<JuceFileDialogs>();
     s.log = std::make_shared<RingLogSink>();
+    s.processes = makeNativeProcessSupervisor();      // ffmpeg and other children: argv only, scrubbed environment
     // s.serial stays NullSerialDmx: reports Unavailable ("no serial adapter in this build"), see app-adapters 7.
     return s;
 }

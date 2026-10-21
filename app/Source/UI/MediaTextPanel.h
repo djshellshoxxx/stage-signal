@@ -3,6 +3,7 @@
 // is held back until the text reaches the engine with the action (see the note under the editor).
 #pragma once
 #include <string>
+#include <memory>
 #include "UI/PanelBase.h"
 
 namespace ss::app {
@@ -20,6 +21,7 @@ public:
 private:
     void uiSnapshotChanged(const UiSnapshot& s) override;
     void uiActionOutcome(const ActionOutcome& o) override;
+    void uiCommandOutcome(const CommandOutcome& o) override;
     void updateCount();
     void setPreview(bool on);
 
@@ -28,6 +30,9 @@ private:
     juce::TextEditor draft_;
     juce::TextButton preview_{"Preview"}, publish_{"Publish"}, clear_{"Clear published"};
     std::uint64_t clearCorrelation_ = 0;
+    std::unique_ptr<juce::FileChooser> chooser_;
+    std::uint64_t cmdCorrelation_ = 0;
+    int imported_ = 0;
     bool previewing_ = false;
     std::string previewedText_;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MediaTextPanel)

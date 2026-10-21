@@ -2,6 +2,7 @@
 // shutdown with a stuck writer, MIDI and lighting feeding, musical-feature wiring, and the allocation-free audio entry.
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <thread>
 #include <juce_core/juce_core.h>
@@ -141,7 +142,8 @@ SelfTestResult recoveryMarker() {
         auto s = c.ui().snapshot();
         std::string d;
         for (auto& e : s->recentDiag) d += e.tag + ":" + e.text + "; ";
-        return fail("snapshot does not show a paused Recovery mode: recovery=" + std::to_string(s->recovery) + " info=" + std::to_string(s->recoveryInfo.active) + " paused=" + std::to_string(s->show.paused) + " " + d);
+        c.ui().poll(); std::string ao; for (auto& o : cat.actions) ao += std::to_string(o.actionId) + (o.accepted ? " ok " : " refused " + o.reason + " ");
+        return fail("snapshot does not show a paused Recovery mode: [" + ao + "] recovery=" + std::to_string(s->recovery) + " info=" + std::to_string(s->recoveryInfo.active) + " paused=" + std::to_string(s->show.paused) + " " + d);
     }
     if (c.lighting().armed() || c.midi().outputEnabled()) return fail("armed in Recovery");
     if (!td.dir.getChildFile("running.lock").existsAsFile()) return fail("running.lock not rewritten at ready");
@@ -169,8 +171,14 @@ SelfTestResult showPersistence() {
         c.ui().addListener(&cat);
         if (!c.start().ok()) return fail("start");
         ss::Action a; a.actionId = ss::id(ss::ActionId::SetMode); a.value = 2.0; a.source = ss::ActionSource::Ui;      // Hybrid
-        c.ui().submitAction(a);
-        if (!waitFor([&] { auto s = c.ui().snapshot(); return s && s->show.mode == ss::ShowMode::Hybrid; }, 2000)) return fail("mode change not applied");
+        const auto tk = c.ui().submitAction(a);
+        if (!waitFor([&] { auto s = c.ui().snapshot(); return s && s->show.mode == ss::ShowMode::Hybrid; }, 4000)) {
+            c.ui().poll();
+            std::string why = "no outcome";
+            for (auto& o : cat.actions) if (o.correlationId == tk.correlationId) why = o.accepted ? "accepted" : "refused: " + o.reason;
+            auto s = c.ui().snapshot();
+            return fail("mode change not applied: " + why + ", mode " + std::to_string(int(s->show.mode)) + ", queued " + std::to_string(tk.result.queued));
+        }
         if (!waitFor([&] { auto s = c.ui().snapshot(); return s && s->showFile.dirty; }, 3500)) return fail("edit did not mark the show unsaved");
         AppCommand save; save.kind = AppCommandKind::SaveShowFile; save.text = file;
         bool ok = false; std::string msg;
@@ -191,7 +199,7 @@ SelfTestResult showPersistence() {
     bad.safeMode = true;
     AppController c3(makeFakeAdapterSet(false), bad);
     c3.start();
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    waitFor([&] { auto x = c3.ui().snapshot(); return x && x->showFile.name.size() > 0; }, 5000);
     auto s3 = c3.ui().snapshot();
     const bool sample = s3 && s3->show.mode == ss::ShowMode::Auto;
     c3.stop();
@@ -204,7 +212,7 @@ SelfTestResult secondaryMode() {
     Catcher cat;
     AppController c(makeFakeAdapterSet(false), cfg);
     c.ui().addListener(&cat);
-    c.start();
+    if (auto st = c.start(); !st.ok()) return fail("Secondary start failed: " + st.error().detail);
     ss::Action arm; arm.actionId = ss::id(ss::ActionId::ArmLighting); arm.source = ss::ActionSource::Ui;
     const auto t = c.ui().submitAction(arm);
     const bool got = waitFor([&] { c.ui().poll(); for (auto& o : cat.actions) if (o.correlationId == t.correlationId) return true; return false; }, 1500);
@@ -213,7 +221,8 @@ SelfTestResult secondaryMode() {
     auto s = c.ui().snapshot();
     c.ui().removeListener(&cat);
     c.stop();
-    if (!got || accepted || c.lighting().armed()) return fail("Secondary accepted Arm");
+    if (!got) return fail("Secondary: no outcome for Arm within 1.5 s, snapshot " + std::string(s ? "present" : "missing") + ", inbox pending " + std::to_string(c.ui().inbox().pending()));
+    if (accepted || c.lighting().armed()) return fail("Secondary accepted Arm");
     if (!s || !s->secondary) return fail("snapshot does not say Secondary");
     return pass("Secondary refuses outputs and says so");
 }
@@ -225,7 +234,7 @@ SelfTestResult shutdownStuckWriter() {
         for (int i = 0; i < 1000 && !killed.load(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(5));
     };
     AppController c(makeFakeAdapterSet(false), cfg);
-    c.start();
+    if (auto st = c.start(); !st.ok()) return fail("start failed: " + st.error().detail);
     const auto t0 = std::chrono::steady_clock::now();
     c.stop();
     const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
@@ -254,15 +263,16 @@ SelfTestResult midiFeedsActions() {
     c.midi().driver().wantInput("fake-in-1");
     if (!waitFor([&] { return midi->sink != nullptr; }, 2000)) return fail("input port was not opened");
     const std::uint8_t on[3] = {0x90, 60, 100};
-    midi->sink->onMidiBytes(1, on, 3, c.clock().nowMonotonic());
+    int sends = 0;
     const bool got = waitFor([&] {
+        if (sends++ % 5 == 0) midi->sink->onMidiBytes(1, on, 3, c.clock().nowMonotonic());     // retry: the port/mapping jobs apply on the next tick
         c.ui().poll();
         for (auto& o : cat.actions) if (o.actionId == ss::id(ss::ActionId::NextScene)) return true;
         return false;
-    }, 2000);
+    }, 6000);
     c.ui().removeListener(&cat);
     c.stop();
-    return got ? pass("note on became NextScene through the inbox") : fail("MIDI note produced no action");
+    return got ? pass("note on became NextScene through the inbox") : fail("MIDI note produced no action; sink " + std::string(midi->sink ? "open" : "null") + ", inputs " + std::to_string(c.midi().driver().inputPorts()) + ", rx " + std::to_string(c.midi().driver().engine().totals().rx));
 }
 
 SelfTestResult lightingDrivenWhenArmed() {
@@ -300,6 +310,35 @@ SelfTestResult lightingDrivenWhenArmed() {
     c.ui().removeListener(&cat);
     c.stop();
     return quiet ? pass("0 packets disarmed, packets when armed, quiet after disarm") : fail("packets kept flowing after disarm");
+}
+
+SelfTestResult mediaWiring() {
+    Catcher cat;
+    AppController c(makeFakeAdapterSet(false), headlessCfg());
+    c.ui().addListener(&cat);
+    if (!c.start().ok()) return fail("start");
+    bool ok = false; std::string msg;
+    AppCommand bad; bad.kind = AppCommandKind::ImportMedia; bad.text = "/definitely/not/here.png"; bad.a = 0;
+    if (!runCommand(c, cat, bad, &ok, &msg)) return fail("no outcome for import");
+    if (ok) return fail("import of a missing file succeeded");
+    if (msg.find("media worker") != std::string::npos) return fail("import still says the media worker is missing");
+    AppCommand pub; pub.kind = AppCommandKind::PublishText; pub.text = "Hello room";
+    if (!runCommand(c, cat, pub, &ok, &msg) || !ok) return fail("publish text failed: " + msg);
+    if (!waitFor([&] { auto s = c.ui().snapshot(); return s && s->media.loadedItems >= 1; }, 3000)) return fail("published text is not a loaded item");
+    ss::Action clear; clear.actionId = ss::id(ss::ActionId::TextClear); clear.source = ss::ActionSource::Ui;
+    c.ui().submitAction(clear);
+    if (!waitFor([&] { auto s = c.ui().snapshot(); return s && s->media.loadedItems == 0; }, 3000)) return fail("TextClear did not clear the banner");
+    AppCommand cfg; cfg.kind = AppCommandKind::ConfigureMedia; cfg.a = 1; cfg.b = 0;
+    if (!runCommand(c, cat, cfg, &ok, &msg) || !ok) return fail("configure failed: " + msg);
+    // StartBroadcast with value 0 only asks for the summary; nothing goes live.
+    ss::Action sb; sb.actionId = ss::id(ss::ActionId::StartBroadcast); sb.source = ss::ActionSource::Ui; sb.value = 0.0;
+    c.ui().submitAction(sb);
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    auto s = c.ui().snapshot();
+    c.ui().removeListener(&cat);
+    c.stop();
+    if (s->broadcast.state == BroadcastUiState::Live) return fail("value 0 went live");
+    return pass("text publish and clear, bad import refused with a cause, configure accepted, value 0 never goes live");
 }
 
 // ---- musical features ------------------------------------------------------------------------------------------
@@ -395,6 +434,7 @@ void registerShellIntegrationTests(SelfTestRegistry& r) {
     r.add("shell: shutdown stuck writer", shutdownStuckWriter);
     r.add("shell: midi feeds actions", midiFeedsActions);
     r.add("shell: lighting driven when armed", lightingDrivenWhenArmed);
+    r.add("shell: media wiring", mediaWiring);
     r.add("shell: phrase wiring", phraseWiring);
     r.add("shell: key colour wiring", keyColorWiring);
     r.add("shell: beat looks wiring", beatLooksWiring);

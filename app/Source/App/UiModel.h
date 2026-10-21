@@ -189,8 +189,9 @@ enum class AppCommandKind : std::uint16_t {
     SetLightingBroadcast = 46,  // a = 1 on / 0 off (Art-Net directed broadcast opt-in)
     PublishText = 47,           // text = message; handed to the media worker when it can raster text
     ImportMedia = 48,           // text = file path; handed to the media worker
-    RemoveMedia = 49,           // a = media id
-    Count_ = 50
+    RemoveMedia = 49,           // a = image slot 0..2
+    ConfigureMedia = 50,        // text = ffmpeg path (empty = search), text2 = recordings folder (empty = default), a = program output (0 = keep), b = video on 1 / off 0
+    Count_ = 51
 };
 
 struct AppCommand {

@@ -129,14 +129,23 @@ RecordBroadcastPanel::RecordBroadcastPanel(UiModel& model) : PanelBase(model, "R
     styleLabel(confirmText_, false);
     confirmText_.setColour(juce::Label::textColourId, theme::stateWarn());
 
-    startCast_.onClick = [this] { showBroadcastConfirm(true); };
-    confirmStart_.onClick = [this] {
-        showBroadcastConfirm(false);
+    // Two steps (media worker contract): value 0 asks for the publication summary, value 1 confirms it. The dialog
+    // opens from the snapshot when the worker reports awaitingConfirm, so a refusal never shows a dead dialog.
+    startCast_.onClick = [this] {
         castStatus_.setText(juce::String(overlay::sendAction(model_, ss::ActionId::StartBroadcast, 0.0, kAllOutputs,
                                                              &castCorrelation_)),
                             juce::dontSendNotification);
     };
-    cancelStart_.onClick = [this] { showBroadcastConfirm(false); };
+    confirmStart_.onClick = [this] {
+        showBroadcastConfirm(false);
+        castStatus_.setText(juce::String(overlay::sendAction(model_, ss::ActionId::StartBroadcast, 1.0, kAllOutputs,
+                                                             &castCorrelation_)),
+                            juce::dontSendNotification);
+    };
+    cancelStart_.onClick = [this] {          // a Stop clears the staged confirmation on the worker
+        showBroadcastConfirm(false);
+        overlay::sendAction(model_, ss::ActionId::StopBroadcast, 0.0, kAllOutputs, &castCorrelation_);
+    };
     stopCast_.onClick = [this] {
         castStatus_.setText(juce::String(overlay::sendAction(model_, ss::ActionId::StopBroadcast, 0.0, kAllOutputs,
                                                              &castCorrelation_)),
@@ -166,7 +175,7 @@ void RecordBroadcastPanel::showBroadcastConfirm(bool show) {
     confirmStart_.setVisible(show);
     cancelStart_.setVisible(show);
     if (show) {
-        if (auto s = model_.snapshot()) confirmText_.setText(juce::String(publicationSummary(*s)), juce::dontSendNotification);
+        if (auto s = model_.snapshot()) confirmText_.setText(juce::String(s->broadcast.confirmText.empty() ? publicationSummary(*s) : s->broadcast.confirmText), juce::dontSendNotification);
         cancelStart_.grabKeyboardFocus();   // focus starts on Cancel (app-ui 15)
     }
     resized();
@@ -256,7 +265,8 @@ void RecordBroadcastPanel::uiSnapshotChanged(const UiSnapshot& s) {
     castStats_.setText(juce::String(buf), juce::dontSendNotification);
     startCast_.setEnabled(!broadcastActive_);
     stopCast_.setEnabled(broadcastActive_);
-    if (castConfirmOpen_ && broadcastActive_) showBroadcastConfirm(false);
+    if (b.awaitingConfirm && !castConfirmOpen_) showBroadcastConfirm(true);
+    else if (!b.awaitingConfirm && castConfirmOpen_) showBroadcastConfirm(false);
     summary_.setText(juce::String(publicationSummary(s)), juce::dontSendNotification);
 }
 
