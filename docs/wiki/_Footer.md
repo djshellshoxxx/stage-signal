@@ -1,0 +1,1 @@
+StageSignal is AGPL-3.0-or-later, by Circuit Drift Labs. Source: [djshellshoxxx/stage-signal](https://github.com/djshellshoxxx/stage-signal). Pages marked *planned* describe behaviour that is specified but not yet built.
