@@ -45,8 +45,8 @@ jobs:
         run: |
           cmake -S . -B build-app -G Ninja -DSS_BUILD_APP=ON -DSS_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-      - name: Build standalone + CLAP
-        run: cmake --build build-app --target StageSignal_Standalone StageSignal_CLAP
+      - name: Build standalone + VST3 + CLAP
+        run: cmake --build build-app --target StageSignal_Standalone StageSignal_VST3 StageSignal_CLAP
       - name: Headless smoke (must stay alive 8 s without crashing)
         run: |
           BIN=$(find build-app -type f -name StageSignal -perm -u+x | head -1)

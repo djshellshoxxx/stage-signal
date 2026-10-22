@@ -2,11 +2,11 @@ include(${SS_ROOT}/cmake/ss_deps.cmake)
 
 file(GLOB_RECURSE SS_APP_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Source/*.cpp)
 
-# Standalone app + CLAP plugin share one AudioProcessor (spec v0.2 addendum DEC-04/DEC-11).
+# Standalone app + VST3 and CLAP plugins share one AudioProcessor (spec v0.2 addendum DEC-04/DEC-11).
 juce_add_plugin(StageSignal
   COMPANY_NAME "Circuit Drift Labs"
   PRODUCT_NAME "StageSignal"
-  FORMATS Standalone
+  FORMATS Standalone VST3
   PLUGIN_MANUFACTURER_CODE Cdlb
   PLUGIN_CODE Stsg
   IS_SYNTH FALSE

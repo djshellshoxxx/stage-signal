@@ -51,26 +51,32 @@ jobs:
             -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 ${{ matrix.cmake }} \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
       - name: Build
-        run: cmake --build build-app --target StageSignal_Standalone StageSignal_CLAP
+        run: cmake --build build-app --target StageSignal_Standalone StageSignal_VST3 StageSignal_CLAP
       - name: Package
         shell: bash
         run: |
           set -e
           V="${{ inputs.tag }}"; N="StageSignal-${V}-${{ matrix.name }}"
           A=build-app/app/StageSignal_artefacts/Release
+          test -s "$A/CLAP/StageSignal.clap" || test -d "$A/CLAP/StageSignal.clap"
+          test -d "$A/VST3/StageSignal.vst3"
           mkdir -p dist
           case "${{ matrix.name }}" in
             windows-x64)
               7z a -tzip "dist/${N}-standalone.zip" "./$A/Standalone/StageSignal.exe" >/dev/null
-              7z a -tzip "dist/${N}-clap.zip" "./$A/CLAP/StageSignal.clap" >/dev/null ;;
+              7z a -tzip "dist/${N}-clap.zip" "./$A/CLAP/StageSignal.clap" >/dev/null
+              (cd "$A/VST3" && 7z a -tzip "$GITHUB_WORKSPACE/dist/${N}-vst3.zip" StageSignal.vst3 >/dev/null) ;;
             macos-*)
               codesign --force --deep -s - "$A/Standalone/StageSignal.app"
               codesign --force --deep -s - "$A/CLAP/StageSignal.clap"
+              codesign --force --deep -s - "$A/VST3/StageSignal.vst3"
               (cd "$A/Standalone" && ditto -c -k --keepParent StageSignal.app "$GITHUB_WORKSPACE/dist/${N}-standalone.zip")
-              (cd "$A/CLAP" && ditto -c -k --keepParent StageSignal.clap "$GITHUB_WORKSPACE/dist/${N}-clap.zip") ;;
+              (cd "$A/CLAP" && ditto -c -k --keepParent StageSignal.clap "$GITHUB_WORKSPACE/dist/${N}-clap.zip")
+              (cd "$A/VST3" && ditto -c -k --keepParent StageSignal.vst3 "$GITHUB_WORKSPACE/dist/${N}-vst3.zip") ;;
             linux-x64)
               tar -C "$A/Standalone" -czf "dist/${N}-standalone.tar.gz" StageSignal
-              tar -C "$A/CLAP" -czf "dist/${N}-clap.tar.gz" StageSignal.clap ;;
+              tar -C "$A/CLAP" -czf "dist/${N}-clap.tar.gz" StageSignal.clap
+              tar -C "$A/VST3" -czf "dist/${N}-vst3.tar.gz" StageSignal.vst3 ;;
           esac
           ls -la dist
       - uses: actions/upload-artifact@v4

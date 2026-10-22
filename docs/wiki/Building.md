@@ -57,7 +57,7 @@ If you already have checkouts, point CMake at them to skip the download:
 # Configure the app with local JUCE and clap-juce-extensions checkouts
 cmake -S . -B build-app -G Ninja -DSS_BUILD_APP=ON -DSS_BUILD_TESTS=OFF \
   -DSS_JUCE_DIR=/path/to/JUCE -DSS_CLAP_EXT_DIR=/path/to/clap-juce-extensions
-cmake --build build-app --target StageSignal_Standalone StageSignal_CLAP
+cmake --build build-app --target StageSignal_Standalone StageSignal_VST3 StageSignal_CLAP
 ```
 
 Without those options CMake downloads both at the pinned commits.

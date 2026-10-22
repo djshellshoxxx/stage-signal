@@ -14,3 +14,7 @@ decisions supersede the matching v0.1 text. Decision records keep rationale and 
 
 Open items that still need the owner: Q-01/Q-02 (physical legacy fixture), Q-03 (broadcast receivers, USB-DMX models),
 DEC-05 confirmation, code-signing budget, true-peak limiter qualification, key-detection corpus (DEC-10).
+
+## Owner direction, 22 October 2026
+
+The requested audio-plugin release matrix now includes **VST3 and CLAP** on Windows x64, macOS arm64, macOS x86_64 and Linux x64, alongside standalone applications. This supersedes DEC-11 only for VST3; AU remains outside scope. The native CI runners build each platform. A configured workflow is not evidence that artifacts passed host validation or have been published.
