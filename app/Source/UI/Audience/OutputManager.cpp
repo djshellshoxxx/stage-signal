@@ -20,11 +20,24 @@ bool OutputManager::open(OutputId id, const juce::Displays::Display& display, ju
     const auto& current = juce::Desktop::getInstance().getDisplays().displays;
     const auto operatorBounds = operatorComponent ? operatorComponent->getScreenBounds() : juce::Rectangle<int>();
     if (!audiencePlacementAllowed(display, current, operatorBounds, reason)) return false;
-    auto w = std::make_unique<AudienceWindow>(model_, id, juce::String("Audience " + std::to_string(id)));
+    juce::Component::SafePointer<juce::Component> operatorWindow(operatorComponent);
+    auto placement = [display, operatorWindow](juce::Rectangle<int> audienceBounds) {
+        if (!operatorWindow) return false;
+        juce::String why;
+        const auto bounds = operatorWindow->getScreenBounds();
+        return audiencePlacementAllowed(display, juce::Desktop::getInstance().getDisplays().displays, bounds, why)
+            && audienceWindowContained(display, audienceBounds, bounds);
+    };
+    auto w = std::make_unique<AudienceWindow>(model_, id, juce::String("Audience " + std::to_string(id)), placement);
     w->showOn(display.logicalBounds.toNearestInt());
     windows_.push_back({id, std::move(w), display, current,
                         juce::Component::SafePointer<juce::Component>(operatorComponent)});
     safetyNotice_.clear();
+    AppCommand remember;
+    remember.kind = AppCommandKind::SetPref;
+    remember.text = "display.output." + std::to_string(id);
+    remember.text2 = displaySelectionToken(display);
+    if (!model_.postCommand(remember)) safetyNotice_ = "Audience output opened, but its display choice could not be saved.";
     return true;
 }
 
@@ -61,7 +74,7 @@ void OutputManager::validateWindows() {
         juce::String reason;
         const auto operatorBounds = it->operatorComponent ? it->operatorComponent->getScreenBounds() : juce::Rectangle<int>();
         const bool layoutUnchanged = sameDisplayLayout(it->topology, current);
-        if (!layoutUnchanged || !audiencePlacementAllowed(it->display, current, operatorBounds, reason)
+        if (!it->window->isVisible() || !layoutUnchanged || !audiencePlacementAllowed(it->display, current, operatorBounds, reason)
             || !audienceWindowContained(it->display, it->window->getScreenBounds(), operatorBounds)) {
             // Never let the OS migrate a disconnected audience window onto controls. Reopening always needs a click.
             it->window->setVisible(false);

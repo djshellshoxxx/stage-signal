@@ -38,6 +38,12 @@ inline bool audiencePlacementAllowed(const juce::Displays::Display& selected,
     return true;
 }
 
+inline std::string displaySelectionToken(const juce::Displays::Display& display) {
+    // This is a conservative local geometry hint, never claimed to be an EDID or portable identity.
+    return display.logicalBounds.toNearestInt().toString().toStdString() + "/"
+        + display.physicalBounds.toString().toStdString() + "/" + std::to_string(display.scale);
+}
+
 inline bool audienceWindowContained(const juce::Displays::Display& selected, juce::Rectangle<int> audienceBounds,
                                     juce::Rectangle<int> operatorBounds) {
     return !audienceBounds.isEmpty() && selected.logicalBounds.toNearestInt().contains(audienceBounds)

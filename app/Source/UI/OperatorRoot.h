@@ -34,7 +34,7 @@ private:
     juce::Label banner_;
     juce::TextButton restoreAuto_{"Restore autosave"}, openLast_{"Open last saved"}, startEmpty_{"Start empty"};
     bool bannerWanted_ = false, recoveryButtons_ = false;
-    bool compact_ = false;
+    bool compact_ = false, wizardOffered_ = false;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OperatorRoot)
 };
 

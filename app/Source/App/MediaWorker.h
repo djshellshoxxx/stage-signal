@@ -14,6 +14,7 @@
 #include "App/AnalysisWorker.h"
 #include "App/Media/BroadcastRunner.h"
 #include "App/Media/CameraFeed.h"
+#include "Engine/Media/ClipDecoder.h"
 #include "App/Media/MediaLayers.h"
 #include "App/Media/MediaTypes.h"
 #include "App/Media/RecordRunner.h"
@@ -46,7 +47,10 @@ public:
     // Media import (any non-RT thread). Stills only; GIF shows its first frame. Slot 0..2.
     ss::Status importImage(std::size_t slot, const std::string& path, std::string* note = nullptr);
     ss::Status setTextBanner(const std::string& utf8, std::uint32_t outW = 1280, std::uint32_t outH = 720);
-    void clearMedia() { layers_.clearAll(); }
+    ss::Status setMediaPlayback(std::size_t slot, double speed, bool loop);
+    ss::Status pauseMedia(std::size_t slot, bool paused);
+    void removeMedia(std::size_t slot);
+    void clearMedia();
     MediaLayers& layers() { return layers_; }
 
     // IProcessedAudioConsumer (ANALYSIS thread): copies into a bounded queue only while a session needs audio.
@@ -77,6 +81,11 @@ private:
     FrameProvider frames_;
     MediaLayers layers_;
     CameraFeed camera_;
+    std::mutex clipsMutex_;
+    std::array<std::unique_ptr<ClipDecoder>, 3> clips_;
+    std::array<std::shared_ptr<const PixelBuffer>, 3> clipFrames_;
+    std::array<std::string, 3> clipPaths_;
+    std::array<FfmpegProbe, 3> clipFfmpeg_;
     std::atomic<std::uint64_t> tapBlocks_{0};
     std::atomic<bool> started_{false}, quit_{false}, wantAudio_{false}, recPending_{false};
     std::atomic<std::uint32_t> lastRate_{0}, lastCh_{0};

@@ -18,6 +18,7 @@ public:
 
     // Control side (any non-RT thread). Slot 0..kMax-2 hold images; the last slot is the text banner.
     ss::Status setImage(std::size_t slot, const std::string& path, ss::media::Tier tier, std::string* note = nullptr);
+    ss::Status setDecodedFrame(std::size_t slot, std::shared_ptr<const PixelBuffer> frame);
     ss::Status setText(const std::string& utf8, std::uint32_t outW = 1280, std::uint32_t outH = 720);
     void clearSlot(std::size_t slot);
     void clearAll();

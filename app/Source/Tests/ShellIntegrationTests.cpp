@@ -124,7 +124,10 @@ SelfTestResult stateBlobNeverArms() {
     // A bad blob leaves the current state alone.
     std::string bad = crafted; bad[bad.size() - 3] ^= 1;
     if (c.setStateBlob(bad.data(), bad.size()).ok()) return fail("bad blob accepted");
-    return pass("flags in the JSON ignored, controller disarmed, bad blob refused");
+    const auto preserved = c.ui().snapshot();
+    if (!preserved || preserved->showFile.name != "Crafted") return fail("invalid state changed the active show");
+    if (c.lighting().armed() || c.midi().outputEnabled()) return fail("invalid state armed an output");
+    return pass("flags ignored, outputs disarmed, corrupt blob refused without changing active show");
 }
 
 // ---- recovery and persistence ---------------------------------------------------------------------------------

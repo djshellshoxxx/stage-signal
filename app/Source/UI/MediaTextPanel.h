@@ -26,6 +26,11 @@ private:
     void setPreview(bool on);
 
     juce::Label mediaTitle_, mediaCount_, mediaNote_, textTitle_, count_, previewLabel_, publishNote_, status_;
+    juce::ComboBox clipSlot_;
+    juce::Slider clipSpeed_;
+    juce::ToggleButton clipLoop_{"Loop"}, clipPause_{"Pause clip"};
+    juce::TextButton clipApply_{"Apply playback"};
+    juce::Label clipStatus_;
     juce::Label cameraTitle_, cameraStatus_;
     juce::ComboBox cameraDevices_;
     juce::TextButton cameraRefresh_{"Refresh"}, cameraOpen_{"Preview camera"}, cameraClose_{"Close camera"};

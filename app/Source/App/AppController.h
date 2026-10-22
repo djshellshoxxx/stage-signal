@@ -16,6 +16,7 @@
 //   MEDIA / CAMERA / MIDI-IN / AUDIO are adapter-owned threads (see Engine/I*.h).
 #pragma once
 #include <atomic>
+#include "App/Benchmark/SoftwareBenchmark.h"
 #include <functional>
 #include <mutex>
 #include <thread>
@@ -181,6 +182,7 @@ private:
     LightingScheduler lighting_;
     MidiScheduler midi_;
     MediaWorker media_;
+    SoftwareBenchmark benchmark_;
     std::unordered_map<std::uint32_t, ActionHandler> actionHandlers_;
     std::unordered_map<std::uint16_t, CommandHandler> commandHandlers_;
     PerfView perf_;                                    // CONTROL thread only

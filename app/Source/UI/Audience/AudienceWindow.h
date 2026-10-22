@@ -1,6 +1,7 @@
 // Full-screen audience window for one output (app-ui 16). No chrome, no cursor, no keyboard focus.
 // It paints the composed frame from UiModel::latestFrame(id) and nothing else. Owner: ui-live.
 #pragma once
+#include <functional>
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "App/UiModel.h"
 #include "UI/Audience/FrameImage.h"
@@ -25,8 +26,11 @@ public:
         repaint();
     }
 
+    void setPlacementGuard(std::function<bool()> guard) { placementAllowed_ = std::move(guard); }
+
     void paint(juce::Graphics& g) override {
         g.fillAll(juce::Colours::black);
+        if (placementAllowed_ && !placementAllowed_()) return;
         if (!blackout_ && !image_.isNull())
             g.drawImageWithin(image_, 0, 0, getWidth(), getHeight(), juce::RectanglePlacement::centred);
     }
@@ -37,12 +41,14 @@ private:
     std::shared_ptr<const SharedFrame> frame_;
     juce::Image image_;
     bool blackout_ = true;
+    std::function<bool()> placementAllowed_;
 };
 
 class AudienceWindow final : public juce::DocumentWindow {
 public:
-    AudienceWindow(UiModel& m, OutputId id, const juce::String& name)
-        : juce::DocumentWindow(name, juce::Colours::black, 0, false), canvas_(m, id) {
+    AudienceWindow(UiModel& m, OutputId id, const juce::String& name, std::function<bool(juce::Rectangle<int>)> placement)
+        : juce::DocumentWindow(name, juce::Colours::black, 0, false), canvas_(m, id), placement_(std::move(placement)) {
+        canvas_.setPlacementGuard([this] { return !placement_ || placement_(getScreenBounds()); });
         setUsingNativeTitleBar(false);
         setTitleBarHeight(0);
         setContentNonOwned(&canvas_, false);
@@ -52,6 +58,9 @@ public:
     ~AudienceWindow() override { setContentNonOwned(nullptr, false); }
 
     void refresh() { canvas_.refresh(); }
+    void moved() override {
+        if (isVisible() && placement_ && !placement_(getScreenBounds())) setVisible(false);
+    }
     // The operator closes audience windows from Setup; the window's own close button is not shown.
     void closeButtonPressed() override {}
 
@@ -64,6 +73,7 @@ public:
 
 private:
     AudienceCanvas canvas_;
+    std::function<bool(juce::Rectangle<int>)> placement_;
 };
 
 }  // namespace ss::app::audience

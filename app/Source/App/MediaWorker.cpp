@@ -1,6 +1,7 @@
 #include "App/MediaWorker.h"
 #include <algorithm>
 #include <chrono>
+#include <juce_core/juce_core.h>
 #include "ss/base/actions.hpp"
 
 namespace ss::app {
@@ -26,6 +27,7 @@ void MediaWorker::stop() {
     std::lock_guard<std::mutex> g(stopMutex_);
     unpublishCamera();
     camera_.close();
+    clearMedia();
     if (started_.load()) {
         quit_.store(true);
         cv_.notify_all();
@@ -45,7 +47,62 @@ bool MediaWorker::unpublishCamera() { camera_.unpublish(); return true; }
 void MediaWorker::configure(const MediaConfig& cfg) { std::lock_guard<std::mutex> l(cfgMutex_); cfg_ = cfg; }
 
 ss::Status MediaWorker::importImage(std::size_t slot, const std::string& path, std::string* note) {
-    return layers_.setImage(slot, path, ss::media::Tier::Standard, note);
+    if (slot >= clips_.size()) return ss::makeError(ss::ErrorCategory::InvalidArgument, "No such media slot");
+    juce::File file(juce::String::fromUTF8(path.c_str()));
+    auto stream = file.createInputStream();
+    if (!stream) return ss::makeError(ss::ErrorCategory::DecodeFailure, "Media file could not be read");
+    std::array<std::uint8_t, 512> bytes{};
+    const int count = stream->read(bytes.data(), static_cast<int>(bytes.size()));
+    const auto sniffed = ss::media::sniff(bytes.data(), static_cast<std::size_t>(std::max(0, count)));
+    if (sniffed.format == ss::media::Format::Gif || ss::media::isVideoContainer(sniffed.format)) {
+        std::string executable;
+        { std::lock_guard<std::mutex> lock(cfgMutex_); executable = cfg_.ffmpegPath; }
+        const auto ffmpeg = adapters_.processes->probeFfmpeg(executable);
+        auto decoder = std::make_unique<ClipDecoder>(*adapters_.processes, *adapters_.clock);
+        auto status = decoder->open(path, ffmpeg);
+        if (!status.ok()) return status;
+        std::lock_guard<std::mutex> lock(clipsMutex_);
+        clips_[slot] = std::move(decoder); clipFrames_[slot].reset(); layers_.clearSlot(slot);
+        clipPaths_[slot] = path; clipFfmpeg_[slot] = ffmpeg;
+        if (note) *note = "GIF/video playback loaded; imported media can flash.";
+        return ss::okStatus();
+    }
+    auto decoded = decodeImageFile(path, ss::media::Tier::Standard);
+    if (!decoded.ok()) return decoded.error();
+    std::lock_guard<std::mutex> lock(clipsMutex_);
+    clips_[slot].reset(); clipFrames_[slot].reset(); clipPaths_[slot].clear();
+    if (note) *note = decoded.value().note;
+    return layers_.setDecodedFrame(slot, std::make_shared<const PixelBuffer>(std::move(decoded.value().pixels)));
+}
+ss::Status MediaWorker::setMediaPlayback(std::size_t slot, double speed, bool loop) {
+    std::string path; FfmpegProbe ffmpeg;
+    { std::lock_guard<std::mutex> lock(clipsMutex_);
+      if (slot >= clips_.size() || !clips_[slot]) return ss::makeError(ss::ErrorCategory::InvalidArgument, "Select a GIF/video slot first");
+      path = clipPaths_[slot]; ffmpeg = clipFfmpeg_[slot]; }
+    auto next = std::make_unique<ClipDecoder>(*adapters_.processes, *adapters_.clock);
+    auto status = next->open(path, ffmpeg, speed, loop);
+    if (!status.ok()) return status;
+    std::lock_guard<std::mutex> lock(clipsMutex_);
+    clips_[slot] = std::move(next); clipFrames_[slot].reset();
+    return ss::okStatus();
+}
+ss::Status MediaWorker::pauseMedia(std::size_t slot, bool paused) {
+    std::lock_guard<std::mutex> lock(clipsMutex_);
+    if (slot >= clips_.size() || !clips_[slot]) return ss::makeError(ss::ErrorCategory::InvalidArgument, "Select a GIF/video slot first");
+    clips_[slot]->setPaused(paused, adapters_.clock->nowMonotonic());
+    return ss::okStatus();
+}
+void MediaWorker::removeMedia(std::size_t slot) {
+    if (slot >= clips_.size()) return;
+    std::lock_guard<std::mutex> lock(clipsMutex_);
+    clips_[slot].reset(); clipFrames_[slot].reset(); clipPaths_[slot].clear(); layers_.clearSlot(slot);
+}
+void MediaWorker::clearMedia() {
+    std::lock_guard<std::mutex> lock(clipsMutex_);
+    for (auto& clip : clips_) clip.reset();
+    for (auto& frame : clipFrames_) frame.reset();
+    for (auto& path : clipPaths_) path.clear();
+    layers_.clearAll();
 }
 ss::Status MediaWorker::setTextBanner(const std::string& utf8, std::uint32_t w, std::uint32_t h) { return layers_.setText(utf8, w, h); }
 
@@ -191,7 +248,13 @@ void MediaWorker::publish() {
     if (recPending_.load() && r.state == RecordUiState::Off) { r.state = RecordUiState::Preparing; r.note = "Checking ffmpeg and the recordings folder"; }
     BroadcastView b = broadcast_->view();
     if (b.state == BroadcastUiState::Off && !b.awaitingConfirm && !bcFail_.empty()) { b.state = BroadcastUiState::Failed; b.note = bcFail_; }
+    std::array<ClipView, 3> clips;
+    { std::lock_guard<std::mutex> lock(clipsMutex_);
+      for (std::size_t i = 0; i < clips_.size(); ++i) if (clips_[i]) {
+          clips[i] = {true, clips_[i]->paused(), clips_[i]->looping(), clips_[i]->speed(), clips_[i]->note()};
+      } }
     std::lock_guard<std::mutex> l(viewMutex_);
+    mediaView_.clips = std::move(clips);
     recView_ = r;
     bcView_ = b;
     mediaView_.workerAvailable = true;
@@ -212,6 +275,17 @@ void MediaWorker::run() {
             doCommand(c);
         }
         camera_.poll(adapters_.clock->nowMonotonic());
+        {
+            std::unique_lock<std::mutex> lock(clipsMutex_, std::try_to_lock);
+            if (lock.owns_lock()) for (std::size_t slot = 0; slot < clips_.size(); ++slot) {
+                if (!clips_[slot]) continue;
+                clips_[slot]->tick(adapters_.clock->nowMonotonic());
+                const auto frame = clips_[slot]->frame();
+                if (frame && frame != clipFrames_[slot]) {
+                    layers_.setDecodedFrame(slot, frame); clipFrames_[slot] = frame;
+                }
+            }
+        }
         drainAudio();
         feedVideo();
         record_->tick();

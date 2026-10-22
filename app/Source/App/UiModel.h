@@ -9,6 +9,7 @@
 //   * Never block, never call an adapter directly. Results come back via ActionOutcome / next snapshot.
 #pragma once
 #include <atomic>
+#include "App/Benchmark/SoftwareBenchmark.h"
 #include <deque>
 #include <functional>
 #include <memory>
@@ -127,6 +128,7 @@ struct UiSnapshot {
     RecoveryView recoveryInfo;
     BroadcastEndpointView broadcastEndpoint;
     bool secondary = false;                   // plugin Secondary instance: analysis and UI only, outputs disabled
+    BenchmarkView benchmark;
     std::vector<std::pair<std::string, std::string>> prefs;   // appearance, wizard, display roles ("ui.*" keys)
     // --- other tabs (struct definitions live in App/Views, owned by the matching worker) --------
     LightingView lighting;
@@ -194,7 +196,11 @@ enum class AppCommandKind : std::uint16_t {
     PublishCamera = 51,        // a = logical output; explicit operator publication, never restore
     UnpublishCamera = 52,
     RefreshCameras = 53,
-    Count_ = 54
+    RunBenchmark = 54,         // a = 0 quick / 1 three repetitions; no live sinks
+    CancelBenchmark = 55,
+    SetMediaPlayback = 56,    // a = slot, b = loop, value = speed; restarts staged clip
+    PauseMedia = 57,          // a = slot, b = pause
+    Count_ = 58
 };
 
 struct AppCommand {
