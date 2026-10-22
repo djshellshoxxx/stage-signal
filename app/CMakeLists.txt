@@ -54,7 +54,7 @@ endif()
 
 # macOS Keychain adapter (Engine/Desktop secret store) needs Security.framework.
 if(APPLE)
-  target_link_libraries(StageSignal PRIVATE "-framework Security" "-framework CoreFoundation")
+  target_link_libraries(StageSignal PRIVATE "-framework Security" "-framework CoreFoundation" "-framework CoreGraphics")
 endif()
 
 # Allocation counter for the `shell: callback no alloc` self-test: standalone executable only. It replaces global

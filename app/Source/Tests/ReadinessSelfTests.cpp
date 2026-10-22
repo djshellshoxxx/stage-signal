@@ -7,6 +7,7 @@
 #include <juce_core/juce_core.h>
 #include "App/AppController.h"
 #include "Engine/DesktopAdapters.h"
+#include "Engine/Desktop/NativeDisplayIdentity.h"
 #include "Tests/SelfTest.h"
 
 namespace ss::app {
@@ -83,6 +84,17 @@ SelfTestResult idleNetwork() {
 }
 }
 void registerReadinessSelfTests(SelfTestRegistry& registry) {
+    registry.add("display: native identity requires unique exact geometry", [] {
+        std::vector<NativeDisplayRecord> displays{{0, 0, 1920, 1080, "native:a", "connector:a"}};
+        if (!uniqueNativeDisplay(displays, 0, 0, 1920, 1080)) return SelfTestResult{false, "exact native record rejected"};
+        if (uniqueNativeDisplay(displays, 1, 0, 1920, 1080)) return SelfTestResult{false, "nearby geometry guessed"};
+        displays.push_back({1920, 0, 1920, 1080, "native:a", "connector:b"});
+        if (uniqueNativeDisplay(displays, 0, 0, 1920, 1080)) return SelfTestResult{false, "duplicate persistent identity trusted across connectors"};
+        displays.pop_back();
+        displays.push_back(displays.front());
+        if (uniqueNativeDisplay(displays, 0, 0, 1920, 1080)) return SelfTestResult{false, "mirrored/ambiguous geometry guessed"};
+        return SelfTestResult{true, "only unique exact native geometry maps; mirrors and missing identities require confirmation"};
+    });
     registry.add("shell: blackout bypasses stalled CONTROL", blackoutStalledControl);
     registry.add("shell: native idle has no Internet sockets", idleNetwork);
 }

@@ -91,11 +91,15 @@ public:
             r.name = std::make_unique<juce::Label>();
             r.open = std::make_unique<juce::TextButton>();
             r.close = std::make_unique<juce::TextButton>();
+            r.restore = std::make_unique<juce::TextButton>();
             r.overlay = std::make_unique<juce::ToggleButton>();
             note(*r.name);
             add(*r.open, ("setup.out." + std::to_string(i) + ".open").c_str());
             add(*r.close, ("setup.out." + std::to_string(i) + ".close").c_str());
             add(*r.overlay, ("setup.out." + std::to_string(i) + ".overlay").c_str());
+            add(*r.restore, ("setup.out." + std::to_string(i) + ".restore").c_str());
+            r.restore->setButtonText("Select saved");
+            r.restore->onClick = [this, i] { restoreRow(i); };
             r.open->setButtonText("Open on display");
             r.close->setButtonText("Close");
             r.overlay->setButtonText("BPM and key overlay");
@@ -245,7 +249,7 @@ public:
         row(kRowH, {{&displayBox_, 0}, {&refreshDisplays_, 140}, {&identify_, 160}});
         for (auto& r : rows_) {
             if (!r.name->isVisible()) continue;
-            uikit::placeRow(juce::Rectangle<int>(8, y, width - 16, kRowH), {{r.name.get(), 0}, {r.overlay.get(), 180}, {r.open.get(), 150}, {r.close.get(), 90}});
+            uikit::placeRow(juce::Rectangle<int>(8, y, width - 16, kRowH), {{r.name.get(), 0}, {r.overlay.get(), 180}, {r.restore.get(), 110}, {r.open.get(), 140}, {r.close.get(), 70}});
             y += kRowH + kGap;
         }
         y += 6;
@@ -273,7 +277,7 @@ private:
     struct OutputRow {
         OutputId id = 0;
         std::unique_ptr<juce::Label> name;
-        std::unique_ptr<juce::TextButton> open, close;
+        std::unique_ptr<juce::TextButton> open, close, restore;
         std::unique_ptr<juce::ToggleButton> overlay;
     };
 
@@ -298,7 +302,7 @@ private:
 
     void syncOutputs(const UiSnapshot& s) {
         int shown = 0;
-        for (auto& r : rows_) { r.name->setVisible(false); r.open->setVisible(false); r.close->setVisible(false); r.overlay->setVisible(false); }
+        for (auto& r : rows_) { r.name->setVisible(false); r.open->setVisible(false); r.close->setVisible(false); r.restore->setVisible(false); r.overlay->setVisible(false); }
         for (const auto& o : s.outputs) {
             if (shown >= kMaxOutputRows) break;
             auto& r = rows_[static_cast<std::size_t>(shown++)];
@@ -311,11 +315,29 @@ private:
             r.name->setVisible(true);
             r.open->setVisible(audience);
             r.close->setVisible(audience);
+            r.restore->setVisible(audience);
+            r.restore->setEnabled(!outputs_.isOpen(o.id) && savedDisplays_.count(o.id));
             r.open->setEnabled(!outputs_.isOpen(o.id));
             r.close->setEnabled(outputs_.isOpen(o.id));
             r.overlay->setVisible(true);
             r.overlay->setToggleState(false, juce::dontSendNotification);
         }
+    }
+
+    void restoreRow(int i) {
+        const auto id = rows_[static_cast<std::size_t>(i)].id;
+        const auto saved = savedDisplays_.find(id);
+        if (saved == savedDisplays_.end()) return;
+        refreshDisplayList();
+        int match = -1;
+        for (int index = 0; index < displayList_.size(); ++index) {
+            if (audience::displaySelectionToken(displayList_.getReference(index)) != saved->second) continue;
+            if (match >= 0) { setNotice("Saved display is ambiguous. Identify displays and choose explicitly."); return; }
+            match = index;
+        }
+        if (match < 0) { setNotice("Saved display is unavailable or changed. Identify displays and choose explicitly."); return; }
+        displayBox_.setSelectedId(match + 1, juce::dontSendNotification);
+        setNotice("Saved display selected. Check its number, then press Open on display to confirm audience output.");
     }
 
     void openRow(int i) {

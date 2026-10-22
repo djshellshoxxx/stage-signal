@@ -34,12 +34,12 @@ Priorities are not repeated per row here; P0 requirements are: REQ-A02, REQ-A10,
 | REQ-D02 | app (shell/UI) (MOD-01) | `REQ-D02: ...` doctest (T-DISPLAY) | Specified | spec v0.1 sec 6, 8, 11; app-shell 3; app-adapters 4.2 |
 | REQ-D03 | router (MOD-05) | `REQ-D03: ...` doctest (T-DISPLAY) | Specified | spec v0.1 sec 6, 8, 11; app-ui 5.2 |
 | REQ-D04 | render (MOD-06) | `REQ-D04: ...` doctest (T-DISPLAY) | Specified | spec v0.1 sec 6, 8, 11; app-ui 2 |
-| REQ-D05 | router (MOD-05) | `REQ-D05: ...` doctest (T-UI) | In progress | `feat/release-formats`: local Linux `--selftest all` 62/62; camera privacy/loss, audience topology/overlap, wizard save/resume. Native camera/hardware qualification pending. |
-| REQ-D06 | router (MOD-05) | `REQ-D06: ...` doctest (T-FAULT) | In progress | `feat/release-formats`: local Linux `--selftest all` 62/62; camera privacy/loss, audience topology/overlap, wizard save/resume. Native camera/hardware qualification pending. |
+| REQ-D05 | router (MOD-05) | `REQ-D05: ...` doctest (T-UI) | In progress | `feat/release-formats`: local Linux `--selftest all` 63/63; camera privacy/loss, audience topology/overlap, wizard save/resume. Native camera/hardware qualification pending. |
+| REQ-D06 | router (MOD-05) | `REQ-D06: ...` doctest (T-FAULT) | In progress | `feat/release-formats`: local Linux `--selftest all` 63/63; camera privacy/loss, audience topology/overlap, wizard save/resume. Native camera/hardware qualification pending. |
 | REQ-D07 | render (MOD-06) | `REQ-D07: ...` doctest (T-DISPLAY) | Specified | spec v0.1 sec 6, 8, 11 |
 | REQ-D08 | router (MOD-05) | `REQ-D08: ...` doctest (T-SHOW) | Specified | spec v0.1 sec 6, 8, 11; app-ui 4.2 |
 | REQ-D09 | show (MOD-04) | `REQ-D09: ...` doctest (T-FAULT) | Specified | spec v0.1 sec 6, 8, 11; app-adapters 3.1 |
-| REQ-D10 | app (shell/UI) (MOD-01) | `REQ-D10: ...` doctest (T-UI) | In progress | `feat/release-formats`: local Linux `--selftest all` 62/62; camera privacy/loss, audience topology/overlap, wizard save/resume. Native camera/hardware qualification pending. |
+| REQ-D10 | app (shell/UI) (MOD-01) | `REQ-D10: ...` doctest (T-UI) | In progress | `feat/release-formats`: local Linux `--selftest all` 63/63; camera privacy/loss, audience topology/overlap, wizard save/resume. Native camera/hardware qualification pending. |
 | REQ-D11 | show (MOD-04) | `REQ-D11: ...` doctest (T-UI) | Specified | spec v0.1 sec 6, 8, 11; app-ui 6, 4.2 |
 | REQ-S01 | show (MOD-04) | `REQ-S01: ...` doctest (T-SHOW) | Specified | spec v0.1 sec 11, 13, 17 |
 | REQ-S02 | show (MOD-04) | `REQ-S02: ...` doctest (T-SHOW) | Specified | spec v0.1 sec 11, 13, 17 |
@@ -49,9 +49,9 @@ Priorities are not repeated per row here; P0 requirements are: REQ-A02, REQ-A10,
 | REQ-S06 | render (MOD-06) | `REQ-S06: ...` doctest (T-MEDIA) | Specified | spec v0.1 sec 11, 13, 17 |
 | REQ-S07 | media (MOD-07) | `REQ-S07: ...` doctest (T-MEDIA) | Specified | spec v0.1 sec 11, 13, 17 |
 | REQ-S08 | media (MOD-07) | `REQ-S08: ...` doctest (T-FAULT) | Specified | spec v0.1 sec 11, 13, 17; app-ui 5.3 |
-| REQ-S09 | camera (app) + render (MOD-08) | `REQ-S09: ...` doctest (T-CAM) | In progress | `feat/release-formats`: local Linux `--selftest all` 62/62; camera privacy/loss, audience topology/overlap, wizard save/resume. Native camera/hardware qualification pending. |
-| REQ-S10 | render (MOD-06) | `REQ-S10: ...` doctest (T-CAM) | In progress | `feat/release-formats`: local Linux `--selftest all` 62/62; camera privacy/loss, audience topology/overlap, wizard save/resume. Native camera/hardware qualification pending. |
-| REQ-S11 | camera (app) + render (MOD-08) | `REQ-S11: ...` doctest (T-FAULT) | In progress | `feat/release-formats`: local Linux `--selftest all` 62/62; camera privacy/loss, audience topology/overlap, wizard save/resume. Native camera/hardware qualification pending. |
+| REQ-S09 | camera (app) + render (MOD-08) | `REQ-S09: ...` doctest (T-CAM) | In progress | `feat/release-formats`: local Linux `--selftest all` 63/63; camera privacy/loss, audience topology/overlap, wizard save/resume. Native camera/hardware qualification pending. |
+| REQ-S10 | render (MOD-06) | `REQ-S10: ...` doctest (T-CAM) | In progress | `feat/release-formats`: local Linux `--selftest all` 63/63; camera privacy/loss, audience topology/overlap, wizard save/resume. Native camera/hardware qualification pending. |
+| REQ-S11 | camera (app) + render (MOD-08) | `REQ-S11: ...` doctest (T-FAULT) | In progress | `feat/release-formats`: local Linux `--selftest all` 63/63; camera privacy/loss, audience topology/overlap, wizard save/resume. Native camera/hardware qualification pending. |
 | REQ-S12 | show (MOD-04) | `REQ-S12: ...` doctest (T-SHOW) | Specified | spec v0.1 sec 11, 13, 17; app-ui 5.2 (Safety), 8 |
 | REQ-S13 | persist (MOD-13) | `REQ-S13: ...` doctest (T-DATA) | Specified | spec v0.1 sec 11, 13, 17; app-adapters 12 |
 | REQ-S14 | persist (MOD-13) | `REQ-S14: ...` doctest (T-SEC) | Specified | spec v0.1 sec 11, 13, 17; app-adapters 11, 12 |
@@ -172,6 +172,6 @@ Acceptance criteria are written so each one is a yes/no check. "Test" names the 
 
 ## Validation recorded 22 October 2026
 
-The integrated portable core passed all 19 CTest executables (803 registered doctest cases). Linux standalone, VST3 and CLAP targets built, and all 62 application self-tests passed under Xvfb. These are local development results, not physical-device qualification or proof of full specification completion. The native matrix for the earlier integration commit is [run 39799240791](https://github.com/djshellshoxxx/stage-signal/actions/runs/39799240791); it does not cover later camera/safety changes. Required remaining gates are maintained in `KNOWN_LIMITATIONS.md`.
+The integrated portable core passed all 19 CTest executables (803 registered doctest cases). Linux standalone, VST3 and CLAP targets built, and all 63 application self-tests passed under Xvfb. These are local development results, not physical-device qualification or proof of full specification completion. The native matrix for the earlier integration commit is [run 39799240791](https://github.com/djshellshoxxx/stage-signal/actions/runs/39799240791); it does not cover later camera/safety changes. Required remaining gates are maintained in `KNOWN_LIMITATIONS.md`.
 
 The latest local application tranche additionally exercises generated H.264/GIF playback, decoder bounds and pause, software benchmark workloads, stalled-CONTROL emergency rendering and native Linux idle-socket checks. These results do not qualify physical hardware or substitute for the final native matrix at the release commit.

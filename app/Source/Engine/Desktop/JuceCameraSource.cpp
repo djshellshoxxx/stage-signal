@@ -5,6 +5,12 @@
 #if JUCE_MAC || JUCE_WINDOWS
 #include <juce_video/juce_video.h>
 #if JUCE_WINDOWS
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
 #include <objbase.h>
 #endif
 

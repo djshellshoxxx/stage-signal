@@ -2,6 +2,7 @@
 // change invalidates the operator's explicit selection and needs another confirmation (REQ-D05/D06).
 #pragma once
 #include <juce_gui_basics/juce_gui_basics.h>
+#include "Engine/Desktop/NativeDisplayIdentity.h"
 
 namespace ss::app::audience {
 
@@ -39,7 +40,15 @@ inline bool audiencePlacementAllowed(const juce::Displays::Display& selected,
 }
 
 inline std::string displaySelectionToken(const juce::Displays::Display& display) {
-    // This is a conservative local geometry hint, never claimed to be an EDID or portable identity.
+    const auto records = nativeDisplayIdentities();
+#if JUCE_MAC
+    const auto bounds = display.logicalBounds.toNearestInt();
+#else
+    const auto bounds = display.physicalBounds;
+#endif
+    if (const auto* record = uniqueNativeDisplay(records, bounds.getX(), bounds.getY(), bounds.getWidth(), bounds.getHeight()))
+        return record->identity;
+    // Ambiguous or unavailable native records retain only an explicitly reconfirmed geometry hint.
     return display.logicalBounds.toNearestInt().toString().toStdString() + "/"
         + display.physicalBounds.toString().toStdString() + "/" + std::to_string(display.scale);
 }

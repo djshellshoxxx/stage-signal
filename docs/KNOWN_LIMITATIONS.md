@@ -33,7 +33,7 @@ Format per item: what is not done or not proven, why, what it means for the user
 
 | # | Limit | Source |
 |---|---|---|
-| P-01 | JUCE gives no stable display identity. We add platform code; identical monitors cannot be told apart and stay unassigned until the operator confirms | app-adapters 4.1 |
+| P-01 | Native monitor paths/UUIDs/EDID hashes supplement JUCE geometry; duplicate native identities and unmatched geometry remain ambiguous and require operator confirmation | app-adapters 4.1 |
 | P-02 | JUCE 8.0.16 supplies host time only on CoreAudio. Windows and Linux A/V timing is estimated | app-adapters 3.2 |
 | P-03 | CLAP plugin: no host time, MIDI out limited to 2 or 3 byte messages (no SysEx), embedded GUI only on Windows, macOS and X11 (no Wayland, no floating window) | clap-juce-extensions; app-shell 7 |
 | P-04 | JUCE has no Linux camera implementation | app-adapters 14 |
@@ -76,12 +76,12 @@ Windows-only wxWidgets shell (original v0.1 plan), mobile, web control surface, 
 
 ## Development evidence and open implementation gates (22 October 2026)
 
-- Linux standalone, VST3 and CLAP targets build; all 19 portable CTest targets and all 62 application self-tests passed locally. Physical device, host and long-duration qualification above remains open.
+- Linux standalone, VST3 and CLAP targets build; all 19 portable CTest targets and all 63 application self-tests passed locally. Physical device, host and long-duration qualification above remains open.
 - Camera preview/publication now has a native JUCE adapter on Windows/macOS and an explicit Unsupported Linux fallback. Camera callbacks copy an image reference into a newest-frame mailbox; RGBA conversion runs on MEDIA. Fake-camera tests verify preview/publication separation, selected-source binding, per-output routing, bounded loss and close. Native hardware and permission prompts remain untested.
 - Audience windows close conservatively on changed topology, DPI, operator movement or invalid window bounds, and need an explicit reopen. The message-thread watchdog polls every 50 ms; this is not proof of zero transient OS window migration, and hardware hotplug timing is unqualified.
 - Setup wizard progress and completion now persist and resume through local preferences. Fake-UI tests cover keyboard completion, saved-step resume and corrupt progress.
 - Moving-image playback now uses optional external FFmpeg/ffprobe with bounded metadata/protocols, frames, queues and timeouts on MEDIA. Generated local H.264 and animated GIF tests verify distinct decoded frames and clean shutdown; fake-process tests cover pause, timing, alpha premultiplication, overflow and timeout. Codec/container/device coverage remains bounded by the documented allowlist.
 - Software benchmark UI and wizard execute real BEN-01/BEN-02 raster/compositor workloads and persist reports; BEN-03 through BEN-06 remain explicitly skipped. Missing measured CPU/latency/device metrics produce Incomplete, never a fabricated qualification. Completing those scenarios and physical qualification remains required.
-- Window bounds and weak display geometry hints persist; outputs require explicit display reconfirmation and never auto-open from ambiguous identity. Stable native EDID/UUID identification remains required implementation work.
+- Window bounds and weak display geometry hints persist; outputs require explicit display reconfirmation and never auto-open from ambiguous identity. Native identity now resolves Windows monitor device paths, macOS display UUIDs and Linux XRandR EDID hashes. Duplicate identities across connectors and ambiguous geometry are refused. Mixed-DPI matching, real identical monitors and hardware hotplug remain unqualified; outputs still require explicit reopening.
 - New tests prove emergency composed black frames while CONTROL is blocked and no owned TCP/UDP sockets during ten seconds of native Linux idle. Full-callback timing, long-duration and cross-platform network qualification remain open. Real plugin-host validation is recorded separately against the exact tested bundle; an earlier bundle pass does not qualify changed binaries. Hardware/corpus/accessibility/soak gates are distinct from implementation gaps.
 - Serial USB-DMX remains an explicitly unsupported optional capability. The current normative adapter scope makes serial optional; Art-Net and sACN remain the implemented lighting transports.
