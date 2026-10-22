@@ -16,6 +16,8 @@ juce_add_plugin(StageSignal
   COPY_PLUGIN_AFTER_BUILD FALSE
   VERSION ${PROJECT_VERSION}
   BUNDLE_ID com.circuitdriftlabs.stagesignal
+  CAMERA_PERMISSION_ENABLED TRUE
+  CAMERA_PERMISSION_TEXT "StageSignal uses a selected camera for operator preview. Audience publication requires a separate explicit action."
   ICON_BIG "" )
 
 clap_juce_extensions_plugin(TARGET StageSignal
@@ -59,4 +61,9 @@ endif()
 # operator new, which must never happen inside a plugin loaded by a host.
 if(TARGET StageSignal_Standalone)
   target_sources(StageSignal_Standalone PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Hooks/AllocHook.cpp)
+endif()
+
+# JUCE has no Linux camera backend; avoid introducing Linux video/browser dependencies.
+if(APPLE OR WIN32)
+  target_link_libraries(StageSignal PRIVATE juce::juce_video)
 endif()

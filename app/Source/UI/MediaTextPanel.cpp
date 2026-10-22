@@ -2,6 +2,7 @@
 #include <initializer_list>
 #include "UI/Overlays/OverlayText.h"
 #include "UI/Theme.h"
+#include "UI/Audience/FrameImage.h"
 
 namespace ss::app {
 
@@ -43,6 +44,29 @@ MediaTextPanel::MediaTextPanel(UiModel& model) : PanelBase(model, "Media / Text"
         if (overlay::sendCommand(model_, c, &cmdCorrelation_)) --imported_;
         remove_.setEnabled(imported_ > 0);
     };
+
+    styleLabel(cameraTitle_, true); cameraTitle_.setText("Camera", juce::dontSendNotification);
+    styleLabel(cameraStatus_, false);
+    cameraDevices_.setTextWhenNothingSelected("Choose a camera");
+    auto cameraCommand = [this](AppCommandKind kind) {
+        AppCommand c; c.kind = kind; c.a = kPrimaryOutput;
+        if (kind == AppCommandKind::OpenCamera) {
+            const int index = cameraDevices_.getSelectedId() - 1;
+            if (index < 0 || index >= static_cast<int>(cameras_.size())) return;
+            c.text = cameras_[static_cast<std::size_t>(index)].id;
+        }
+        overlay::sendCommand(model_, c, &cmdCorrelation_);
+    };
+    cameraRefresh_.onClick = [cameraCommand] { cameraCommand(AppCommandKind::RefreshCameras); };
+    cameraOpen_.onClick = [cameraCommand] { cameraCommand(AppCommandKind::OpenCamera); };
+    cameraClose_.onClick = [cameraCommand] { cameraCommand(AppCommandKind::CloseCamera); };
+    cameraPublish_.onClick = [cameraCommand] { cameraCommand(AppCommandKind::PublishCamera); };
+    cameraUnpublish_.onClick = [cameraCommand] { cameraCommand(AppCommandKind::UnpublishCamera); };
+    cameraOpen_.setComponentID("camera.preview"); cameraPublish_.setComponentID("camera.publish");
+    cameraPublish_.setEnabled(false); cameraUnpublish_.setEnabled(false);
+    for (auto* c : std::initializer_list<juce::Component*>{&cameraTitle_, &cameraStatus_, &cameraDevices_, &cameraRefresh_,
+                                                         &cameraOpen_, &cameraClose_, &cameraPublish_, &cameraUnpublish_, &cameraImage_})
+        addAndMakeVisible(c);
 
     styleLabel(textTitle_, true);
     textTitle_.setText("Text", juce::dontSendNotification);
@@ -125,6 +149,17 @@ void MediaTextPanel::resized() {
     lb.removeFromLeft(8);
     remove_.setBounds(lb.removeFromLeft(100).reduced(0, 2));
 
+    left.removeFromTop(8);
+    cameraTitle_.setBounds(left.removeFromTop(22));
+    cameraStatus_.setBounds(left.removeFromTop(24));
+    auto cameraRow = left.removeFromTop(28);
+    cameraRefresh_.setBounds(cameraRow.removeFromRight(70)); cameraDevices_.setBounds(cameraRow);
+    cameraRow = left.removeFromTop(30);
+    cameraOpen_.setBounds(cameraRow.removeFromLeft(140)); cameraClose_.setBounds(cameraRow);
+    cameraRow = left.removeFromTop(30);
+    cameraPublish_.setBounds(cameraRow.removeFromLeft(140)); cameraUnpublish_.setBounds(cameraRow);
+    cameraImage_.setBounds(left.removeFromTop(100));
+
     auto r = juce::Rectangle<int>(312, 8, getWidth() - 320, getHeight() - 16);
     textTitle_.setBounds(r.removeFromTop(22));
     auto countRow = r.removeFromTop(20);
@@ -146,6 +181,28 @@ void MediaTextPanel::resized() {
 }
 
 void MediaTextPanel::uiSnapshotChanged(const UiSnapshot& s) {
+    const auto state = static_cast<CameraState>(s.media.cameraState);
+    bool changed = cameras_.size() != s.media.cameraDevices.size();
+    if (!changed) for (std::size_t i = 0; i < cameras_.size(); ++i) changed = changed || cameras_[i].id != s.media.cameraDevices[i].id;
+    if (changed) {
+        const auto selected = cameraDevices_.getText();
+        cameras_ = s.media.cameraDevices; cameraDevices_.clear(juce::dontSendNotification);
+        for (std::size_t i = 0; i < cameras_.size(); ++i) cameraDevices_.addItem(cameras_[i].name, static_cast<int>(i + 1));
+        cameraDevices_.setText(selected, juce::dontSendNotification);
+    }
+    cameraOpen_.setEnabled(state != CameraState::Unsupported && !cameras_.empty());
+    cameraPublish_.setEnabled(state == CameraState::Previewing && s.media.cameraPreview != nullptr);
+    cameraUnpublish_.setEnabled(state == CameraState::Published || state == CameraState::Lost);
+    cameraClose_.setEnabled(state != CameraState::Off && state != CameraState::Unsupported);
+    cameraStatus_.setText(state == CameraState::Unsupported ? "Camera unsupported on this platform." :
+        state == CameraState::Published ? "Published to Output 1" : state == CameraState::Lost ? "Camera lost; no fallback selected." :
+        state == CameraState::Previewing ? "Preview only; not on audience output." : "Camera off", juce::dontSendNotification);
+    if (cameraPreview_ != s.media.cameraPreview) {
+        cameraPreview_ = s.media.cameraPreview;
+        juce::Image image;
+        if (cameraPreview_) audience::copyFrame(*cameraPreview_, image);
+        cameraImage_.setImage(image);
+    }
     mediaCount_.setText(juce::String(static_cast<int>(s.media.loadedItems)) + " items loaded.", juce::dontSendNotification);
     if (!s.media.note.empty()) mediaNote_.setText(juce::String(s.media.note), juce::dontSendNotification);
 }

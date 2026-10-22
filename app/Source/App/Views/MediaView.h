@@ -2,6 +2,9 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <memory>
+#include <vector>
+#include "Engine/ICameraSource.h"
 
 namespace ss::app {
 
@@ -9,6 +12,8 @@ struct MediaView {
     bool workerAvailable = false;        // true once the MEDIA worker thread runs (stills decode; GIF first frame only; no video)
     std::uint32_t loadedItems = 0;
     unsigned char cameraState = 0;       // ss::app::CameraState value
+    std::vector<CameraDesc> cameraDevices;
+    std::shared_ptr<const PixelBuffer> cameraPreview;
     bool ffmpegFound = false;            // video recording/broadcast possible
     std::string ffmpegNote;              // cause when not found, or a short version line
     std::string note;

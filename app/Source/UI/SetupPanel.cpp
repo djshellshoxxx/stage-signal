@@ -180,6 +180,7 @@ public:
 
     void apply(const UiSnapshot& s) {
         restorePrefs(s);
+        if (outputs_.safetyNotice().isNotEmpty()) setNotice(outputs_.safetyNotice());
         if (s.showFile.freeBytesValid) {
             const double gb = double(s.showFile.freeBytes) / (1024.0 * 1024.0 * 1024.0);
             filesNote_.setText(juce::String(gb, 1) + " GB free where shows and recordings are saved." +

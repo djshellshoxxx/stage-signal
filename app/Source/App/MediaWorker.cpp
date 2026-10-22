@@ -25,7 +25,7 @@ ss::Status MediaWorker::start() {
 void MediaWorker::stop() {
     std::lock_guard<std::mutex> g(stopMutex_);
     unpublishCamera();
-    if (adapters_.camera) adapters_.camera->close();
+    camera_.close();
     if (started_.load()) {
         quit_.store(true);
         cv_.notify_all();
@@ -34,7 +34,13 @@ void MediaWorker::stop() {
     }
 }
 
-bool MediaWorker::unpublishCamera() { return true; }
+void MediaWorker::refreshCameras() {
+    auto devices = camera_.devices();
+    std::lock_guard<std::mutex> lock(viewMutex_);
+    mediaView_.cameraDevices = std::move(devices);
+}
+
+bool MediaWorker::unpublishCamera() { camera_.unpublish(); return true; }
 
 void MediaWorker::configure(const MediaConfig& cfg) { std::lock_guard<std::mutex> l(cfgMutex_); cfg_ = cfg; }
 
@@ -125,7 +131,7 @@ void MediaWorker::doCommand(const Cmd& c) {
         case Cmd::Marker: record_->addMarker(); break;
         case Cmd::StageBc: {
             ss::broadcast::PublicationFacts facts;
-            facts.cameraPublished = adapters_.camera && adapters_.camera->cameraState() == CameraState::Published;
+            facts.cameraPublished = camera_.state() == CameraState::Published;
             facts.audioSourceLabel = "Master bus (after compressor/limiter)";
             facts.programOutputLabel = "Output " + std::to_string(cfg.programOutput);
             facts.recordingActive = record_->active();
@@ -190,11 +196,13 @@ void MediaWorker::publish() {
     bcView_ = b;
     mediaView_.workerAvailable = true;
     mediaView_.loadedItems = layers_.loaded();
-    if (adapters_.camera) mediaView_.cameraState = static_cast<unsigned char>(adapters_.camera->cameraState());
+    mediaView_.cameraPreview = camera_.preview();
+    if (adapters_.camera) mediaView_.cameraState = static_cast<unsigned char>(camera_.state());
     mediaView_.note = layers_.lastNote();
 }
 
 void MediaWorker::run() {
+    refreshCameras();
     probe(false);
     publish();
     while (!quit_.load()) {
@@ -203,6 +211,7 @@ void MediaWorker::run() {
             { std::lock_guard<std::mutex> l(cmdMutex_); if (cmds_.empty()) break; c = cmds_.front(); cmds_.pop_front(); }
             doCommand(c);
         }
+        camera_.poll(adapters_.clock->nowMonotonic());
         drainAudio();
         feedVideo();
         record_->tick();

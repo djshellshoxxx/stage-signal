@@ -1,6 +1,7 @@
 #include "UI/Setup/Wizard.h"
 #include "UI/Live/Actions.h"
 #include "UI/Theme.h"
+#include "UI/Setup/WizardProgress.h"
 #include <algorithm>
 
 namespace ss::app::setup {
@@ -60,6 +61,11 @@ Wizard::Wizard(UiModel& model, std::function<void()> onFinish, std::function<voi
                                   });
         }
     };
+    if (auto snapshot = model_.snapshot()) for (const auto& pref : snapshot->prefs) {
+        WizardProgress progress;
+        if (pref.first != "wizard.progress" || !WizardProgress::decode(pref.second, progress) || progress.completed) continue;
+        step_ = progress.step; audioSeen_ = progress.audioSeen; audioSkipped_ = progress.audioSkipped; result_ = progress.results;
+    }
     showStep();
 }
 
@@ -96,6 +102,7 @@ void Wizard::skip() {
 void Wizard::back() {
     if (step_ == 0) return;
     --step_;
+    saveProgress(false);
     showStep();
 }
 
@@ -115,13 +122,25 @@ Wizard::Summary Wizard::summary() const {
 }
 
 void Wizard::finish() {
+    if (step_ != kSteps - 1 || !saveProgress(true)) return;
     if (onFinish_) onFinish_();
+}
+
+bool Wizard::saveProgress(bool completed) {
+    WizardProgress progress;
+    progress.step = step_; progress.completed = completed; progress.audioSeen = audioSeen_; progress.audioSkipped = audioSkipped_;
+    progress.results = result_;
+    AppCommand command; command.kind = AppCommandKind::SetPref; command.text = "wizard.progress"; command.text2 = progress.encode();
+    if (model_.postCommand(command)) return true;
+    detail_.setText("Setup progress could not be queued. Try again in a moment.", juce::dontSendNotification);
+    return false;
 }
 
 void Wizard::recordAndAdvance(bool wasSkipped) {
     result_[static_cast<std::size_t>(step_)] = wasSkipped ? 2 : 1;
     if (step_ < kSteps - 1) {
         ++step_;
+        saveProgress(false);
         showStep();
     } else {
         finish();

@@ -26,7 +26,7 @@ Format per item: what is not done or not proven, why, what it means for the user
 | D-03 | Linux has no package-manager packages in v1 | Tarball or AppImage only; no distro review |
 | D-04 | The CLAP plugin is unsigned and tested in few hosts | FL Studio, REAPER and Bitwig behaviour is described in research-deferred; only hosts we ran are claimed |
 | D-05 | No automatic updates | By design (offline first) |
-| D-06 | AGPL-3.0-or-later with JUCE under its AGPL option | Anyone who distributes or offers it over a network must offer source; a commercial JUCE licence is an owner decision |
+| D-06 | Owner selected existing commercial JUCE license on 22 October 2026 | No project source license is granted; commercial entitlement is owner-declared, not audited. Dependency notices accompany each archive; see DISTRIBUTION.md |
 | D-07 | FFmpeg is not bundled by default | Video recording and broadcast need an FFmpeg on the machine; the feature turns off with a clear message if missing |
 
 ## 3. Platform limits found while writing the specs
@@ -73,3 +73,12 @@ Windows-only wxWidgets shell (original v0.1 plan), mobile, web control surface, 
 - Add anything found in the beta (crash reports, user-facing surprises).
 - Link each limit to the issue that tracks it.
 - Re-run the checks that this file depends on: the contrast script, the copy lint, and the sample benchmark report.
+
+## Development evidence and open implementation gates (22 October 2026)
+
+- Linux standalone, VST3 and CLAP targets build; all 19 portable CTest targets and all 56 application self-tests passed locally. Physical device, host and long-duration qualification above remains open.
+- Camera preview/publication now has a native JUCE adapter on Windows/macOS and an explicit Unsupported Linux fallback. Camera callbacks copy an image reference into a newest-frame mailbox; RGBA conversion runs on MEDIA. Fake-camera tests verify preview/publication separation, selected-source binding, per-output routing, bounded loss and close. Native hardware and permission prompts remain untested.
+- Audience windows close conservatively on changed topology, DPI, operator movement or invalid window bounds, and need an explicit reopen. The message-thread watchdog polls every 50 ms; this is not proof of zero transient OS window migration, and hardware hotplug timing is unqualified.
+- Setup wizard progress and completion now persist and resume through local preferences. Fake-UI tests cover keyboard completion, saved-step resume and corrupt progress.
+- Required work still open: stable native display identity/role restoration and window position persistence; exposed safe benchmark workflow; moving-image/GIF playback; remaining full-callback timing, stalled-control safety, idle-socket and real plugin-host pass-through checks. Hardware/corpus/accessibility/soak gates are distinct from these implementation gaps.
+- Serial USB-DMX remains an explicitly unsupported optional capability. The current normative adapter scope makes serial optional; Art-Net and sACN remain the implemented lighting transports.

@@ -13,6 +13,7 @@
 #include <thread>
 #include "App/AnalysisWorker.h"
 #include "App/Media/BroadcastRunner.h"
+#include "App/Media/CameraFeed.h"
 #include "App/Media/MediaLayers.h"
 #include "App/Media/MediaTypes.h"
 #include "App/Media/RecordRunner.h"
@@ -28,11 +29,13 @@ class MediaWorker final : public IProcessedAudioConsumer, public IRenderLayerSou
 public:
     using FrameProvider = std::function<std::shared_ptr<const SharedFrame>(ss::OutputId)>;
 
-    explicit MediaWorker(AdapterSet& adapters) : adapters_(adapters) {}
+    explicit MediaWorker(AdapterSet& adapters) : adapters_(adapters), camera_(adapters.camera) {}
     ~MediaWorker() override { stop(); }
 
     ss::Status start();       // step 12: starts the worker thread; idle, camera closed, nothing published
     void stop();              // shutdown stages 1, 2, 4(camera), 6: unpublish, stop broadcast, finalise recorder
+    void refreshCameras();
+    CameraFeed& camera() { return camera_; }
     bool unpublishCamera();   // stage 1 helper
 
     // Any thread. Settings used by the NEXT session; a running session keeps the settings it started with.
@@ -49,7 +52,7 @@ public:
     // IProcessedAudioConsumer (ANALYSIS thread): copies into a bounded queue only while a session needs audio.
     void onProcessedBlock(const AudioBlockView& processed, const AudioBlockView& raw) override;
     // IRenderLayerSource (RENDER thread): still and text layers.
-    void fillLayers(OutputId o, ss::Ns now, ss::compose::FrameInputs& in) override { layers_.fillLayers(o, now, in); }
+    void fillLayers(OutputId o, ss::Ns now, ss::compose::FrameInputs& in) override { layers_.fillLayers(o, now, in); camera_.fillLayers(o, now, in); }
 
     // CONTROL thread: StartRecording/StopRecording/StartBroadcast/StopBroadcast/AddMarker.
     //   StartRecording / StartBroadcast need a user source (Ui, Keyboard, Midi).
@@ -73,6 +76,7 @@ private:
     AdapterSet& adapters_;
     FrameProvider frames_;
     MediaLayers layers_;
+    CameraFeed camera_;
     std::atomic<std::uint64_t> tapBlocks_{0};
     std::atomic<bool> started_{false}, quit_{false}, wantAudio_{false}, recPending_{false};
     std::atomic<std::uint32_t> lastRate_{0}, lastCh_{0};

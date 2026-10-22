@@ -799,6 +799,17 @@ void AppController::shellRegisterCommands() {
     });
 
     // ---- reports (22, 23, 24) ------------------------------------------------------------------------------------
+    registerCommandHandler(AppCommandKind::RefreshCameras, [this](const AppCommand&) { media_.refreshCameras(); return ss::okStatus(); });
+    registerCommandHandler(AppCommandKind::OpenCamera, [this, reject](const AppCommand& c) {
+        if (cfg_.secondary) return reject("Another instance owns the camera");
+        return media_.camera().open(c.text);
+    });
+    registerCommandHandler(AppCommandKind::CloseCamera, [this](const AppCommand&) { media_.camera().close(); return ss::okStatus(); });
+    registerCommandHandler(AppCommandKind::PublishCamera, [this, reject](const AppCommand& c) {
+        if (cfg_.secondary) return reject("Another instance owns the camera");
+        return media_.camera().publish(c.a > 0 ? static_cast<OutputId>(c.a) : kPrimaryOutput);
+    });
+    registerCommandHandler(AppCommandKind::UnpublishCamera, [this](const AppCommand&) { media_.camera().unpublish(); return ss::okStatus(); });
     registerCommandHandler(AppCommandKind::RunShowDoctor, [](const AppCommand&) { return ss::okStatus(); });   // the check runs in the UI from the snapshot
     registerCommandHandler(AppCommandKind::ExportShowReport, [this, reject](const AppCommand& c) {
         if (c.text.empty()) return reject("Choose a folder first.");

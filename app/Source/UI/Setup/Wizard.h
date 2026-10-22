@@ -42,6 +42,7 @@ public:
 
 private:
     void showStep();
+    bool saveProgress(bool completed);
     void askLeave();
     void recordAndAdvance(bool wasSkipped);
 

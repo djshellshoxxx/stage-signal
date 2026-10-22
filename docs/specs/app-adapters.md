@@ -250,3 +250,7 @@ Code: `Engine/Media/NativeProcess.*` (supervisor), `Engine/Media/ImageDecode.*`,
 | Camera | NOT implemented. `juce_video` is not linked and JUCE has no Linux camera (P-04); the adapter stays `NullCameraSource` (Unsupported). A Windows/macOS `juce::CameraDevice` adapter needs `juce_video` in `app/CMakeLists.txt` and a CI build on both | n/a |
 
 Needs from other owners: the desktop adapter set must return `makeNativeProcessSupervisor()` as `processes` (today it is the fake, so ffmpeg is never found in the real app); the controller must call `MediaWorker::setFrameProvider` and route `AddMarker` to `MediaWorker::handleAction`; the UI must call `MediaWorker::configure` (folder, ffmpeg path, broadcast endpoint) and send `StartBroadcast` twice (value 0 for the summary, value 1 to confirm).
+
+## Camera implementation update, 22 October 2026
+
+`Engine/Desktop/JuceCameraSource` uses JUCE CameraDevice on Windows/macOS, with an explicit selected-name binding and no fallback. Linux returns Unsupported, as specified. The capture callback only stores an image reference; MEDIA polling converts bounded RGBA frames. The application supplies the macOS camera usage description. `App/Media/CameraFeed` owns preview/publication/source-loss policy and passes the published camera layer to the compositor. A fake-camera self-test covers privacy, output routing, loss timeout and close; no real camera has been qualified.

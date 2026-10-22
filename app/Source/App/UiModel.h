@@ -191,7 +191,10 @@ enum class AppCommandKind : std::uint16_t {
     ImportMedia = 48,           // text = file path; handed to the media worker
     RemoveMedia = 49,           // a = image slot 0..2
     ConfigureMedia = 50,        // text = ffmpeg path (empty = search), text2 = recordings folder (empty = default), a = program output (0 = keep), b = video on 1 / off 0
-    Count_ = 51
+    PublishCamera = 51,        // a = logical output; explicit operator publication, never restore
+    UnpublishCamera = 52,
+    RefreshCameras = 53,
+    Count_ = 54
 };
 
 struct AppCommand {
