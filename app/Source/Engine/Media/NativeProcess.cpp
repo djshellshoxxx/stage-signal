@@ -387,7 +387,7 @@ void NativeProcess::pump() {
 }
 bool NativeProcess::write(Chan& c, const std::uint8_t* d, std::size_t n) {
     if (!c.h || c.closeWhenDrained) return false;
-    c.cap = std::max(c.cap, n * 4);
+    c.cap = (std::max)(c.cap, n * 4);
     if (c.q.size() - c.head + n > c.cap) { ++c.dropped; return false; }
     c.q.append(reinterpret_cast<const char*>(d), n);
     pump();
