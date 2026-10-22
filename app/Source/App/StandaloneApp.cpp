@@ -26,7 +26,7 @@ namespace {
 class StageSignalApp final : public juce::JUCEApplication {
 public:
     const juce::String getApplicationName() override { return "StageSignal"; }
-    const juce::String getApplicationVersion() override { return "0.2.0"; }
+    const juce::String getApplicationVersion() override { return JucePlugin_VersionString; }
     bool moreThanOneInstanceAllowed() override {
         // A self-test must run next to a normal instance; real instances are single.
         return getCommandLineParameters().contains("--selftest");

@@ -7,7 +7,12 @@ on:
       tag:
         description: "Release tag (e.g. v0.1.0-beta.1)"
         required: true
-        default: v0.1.0-beta.1
+        default: v0.1.0-beta.2
+      publish_release:
+        description: "Publish the validated artifacts as a GitHub prerelease"
+        required: true
+        type: boolean
+        default: false
 permissions:
   contents: write
 jobs:
@@ -43,7 +48,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build pkg-config libasound2-dev libx11-dev \
             libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev \
-            libfreetype-dev libfontconfig1-dev libgl1-mesa-dev
+            libfreetype-dev libfontconfig1-dev libgl1-mesa-dev xvfb
       - name: Configure
         shell: bash
         run: |
@@ -52,6 +57,13 @@ jobs:
             -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
       - name: Build
         run: cmake --build build-app --target StageSignal_Standalone StageSignal_VST3 StageSignal_CLAP
+      - name: Application functional self-tests (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          BIN=build-app/app/StageSignal_artefacts/Release/Standalone/StageSignal
+          test -x "$BIN"
+          SS_DATA_DIR="$RUNNER_TEMP/stagesignal-selftests" xvfb-run -a "$BIN" --selftest all
       - name: Package
         shell: bash
         run: |
@@ -61,11 +73,22 @@ jobs:
           test -s "$A/CLAP/StageSignal.clap" || test -d "$A/CLAP/StageSignal.clap"
           test -d "$A/VST3/StageSignal.vst3"
           mkdir -p dist
+          python scripts/collect_release_notices.py --juce-root build-app/_deps/juce-src \
+            --clap-root build-app/_deps/clap_juce_extensions-src --output build-app/release-notices
+          for format in Standalone CLAP VST3; do
+            case "${{ matrix.name }}" in
+              macos-*)
+                case "$format" in Standalone) bundle=StageSignal.app ;; CLAP) bundle=StageSignal.clap ;; VST3) bundle=StageSignal.vst3 ;; esac
+                mkdir -p "$A/$format/$bundle/Contents/Resources"
+                cp -R build-app/release-notices "$A/$format/$bundle/Contents/Resources/StageSignal-Notices" ;;
+              *) cp -R build-app/release-notices "$A/$format/StageSignal-Notices" ;;
+            esac
+          done
           case "${{ matrix.name }}" in
             windows-x64)
-              7z a -tzip "dist/${N}-standalone.zip" "./$A/Standalone/StageSignal.exe" >/dev/null
-              7z a -tzip "dist/${N}-clap.zip" "./$A/CLAP/StageSignal.clap" >/dev/null
-              (cd "$A/VST3" && 7z a -tzip "$GITHUB_WORKSPACE/dist/${N}-vst3.zip" StageSignal.vst3 >/dev/null) ;;
+              (cd "$A/Standalone" && 7z a -tzip "$GITHUB_WORKSPACE/dist/${N}-standalone.zip" StageSignal.exe StageSignal-Notices >/dev/null)
+              (cd "$A/CLAP" && 7z a -tzip "$GITHUB_WORKSPACE/dist/${N}-clap.zip" StageSignal.clap StageSignal-Notices >/dev/null)
+              (cd "$A/VST3" && 7z a -tzip "$GITHUB_WORKSPACE/dist/${N}-vst3.zip" StageSignal.vst3 StageSignal-Notices >/dev/null) ;;
             macos-*)
               codesign --force --deep -s - "$A/Standalone/StageSignal.app"
               codesign --force --deep -s - "$A/CLAP/StageSignal.clap"
@@ -74,15 +97,16 @@ jobs:
               (cd "$A/CLAP" && ditto -c -k --keepParent StageSignal.clap "$GITHUB_WORKSPACE/dist/${N}-clap.zip")
               (cd "$A/VST3" && ditto -c -k --keepParent StageSignal.vst3 "$GITHUB_WORKSPACE/dist/${N}-vst3.zip") ;;
             linux-x64)
-              tar -C "$A/Standalone" -czf "dist/${N}-standalone.tar.gz" StageSignal
-              tar -C "$A/CLAP" -czf "dist/${N}-clap.tar.gz" StageSignal.clap
-              tar -C "$A/VST3" -czf "dist/${N}-vst3.tar.gz" StageSignal.vst3 ;;
+              tar -C "$A/Standalone" -czf "dist/${N}-standalone.tar.gz" StageSignal StageSignal-Notices
+              tar -C "$A/CLAP" -czf "dist/${N}-clap.tar.gz" StageSignal.clap StageSignal-Notices
+              tar -C "$A/VST3" -czf "dist/${N}-vst3.tar.gz" StageSignal.vst3 StageSignal-Notices ;;
           esac
           ls -la dist
       - uses: actions/upload-artifact@v4
         with: { name: "dist-${{ matrix.name }}", path: dist/*, if-no-files-found: error }
 
   release:
+    if: inputs.publish_release
     needs: build
     runs-on: ubuntu-latest
     steps:

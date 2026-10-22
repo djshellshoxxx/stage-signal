@@ -216,7 +216,7 @@ ss::Status AppController::shellCrashMarker() {
     LockInfo old;
     auto txt = fs.readFile(sh.lockPath, 4096);
     const bool parsed = txt.ok() && lockFromText(txt.value(), old);
-    const char* mode = cfg_.host == HostKind::Clap ? "clap" : "standalone";
+    const char* mode = cfg_.host == HostKind::Clap ? "clap" : (cfg_.host == HostKind::Vst3 ? "vst3" : "standalone");
     if (parsed && old.pid != ownPid() && old.mode == mode && processAlive(old.pid)) {
         // A live process owns the marker: this is not a crash. Leave its lock alone.
         sh.ownsLock = false;
@@ -233,7 +233,7 @@ void AppController::shellWriteLock() {
     if (sh.dir.empty() || !sh.ownsLock) return;
     LockInfo l;
     l.pid = ownPid(); l.startUnixMs = sh.startWallMs; l.build = "0.2.0";
-    l.mode = cfg_.host == HostKind::Clap ? "clap" : "standalone";
+    l.mode = cfg_.host == HostKind::Clap ? "clap" : (cfg_.host == HostKind::Vst3 ? "vst3" : "standalone");
     auto st = adapters_.files->writeFile(sh.lockPath, lockToText(l), true);
     if (!st.ok()) diag_.post(DiagLevel::Warn, "crashmarker", "running.lock could not be written");
 }

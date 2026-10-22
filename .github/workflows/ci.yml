@@ -51,3 +51,9 @@ jobs:
         run: |
           BIN=$(find build-app -type f -name StageSignal -perm -u+x | head -1)
           set +e; timeout 8 xvfb-run -a "$BIN"; rc=$?; test "$rc" -eq 124
+
+      - name: Application functional self-tests
+        run: |
+          BIN=build-app/app/StageSignal_artefacts/Release/Standalone/StageSignal
+          test -x "$BIN"
+          SS_DATA_DIR="$RUNNER_TEMP/stagesignal-selftests" xvfb-run -a "$BIN" --selftest all

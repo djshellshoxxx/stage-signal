@@ -77,7 +77,13 @@ sudo apt-get install -y --no-install-recommends ninja-build pkg-config libasound
 
 ## Running the app
 
-The app on `main` is a placeholder that opens a window with the name on it. The build is still useful as a compile check for the JUCE layer.
+The application connects desktop adapters, analysis, rendering, show control, persistence and the operator UI. Run its fake-adapter functional checks on Linux with:
+
+```sh
+xvfb-run -a build-app/app/StageSignal_artefacts/Release/Standalone/StageSignal --selftest all
+```
+
+The checks exercise application wiring; they do not qualify physical audio, display or lighting hardware.
 
 ## Common problems
 

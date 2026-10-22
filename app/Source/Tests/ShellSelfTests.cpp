@@ -148,6 +148,18 @@ SelfTestResult smoke() {
 void registerShellIntegrationTests(SelfTestRegistry& r);
 void registerShellSelfTests(SelfTestRegistry& r) {
     r.add("smoke", smoke);
+    r.add("shell: plugin host policies", [] {
+        for (const auto kind : {HostKind::Clap, HostKind::Vst3}) {
+            const auto& mode = hostModeFor(kind);
+            if (mode.kind() != kind || mode.clearsProcessorOutput() || !mode.passesThroughMainBus()
+                || mode.ownsAudioDevice() || mode.opensAudienceWindowsAtStartup() || !mode.editorIsEmbedded())
+                return SelfTestResult{false, "plugin must pass audio unchanged and leave device ownership with the host"};
+        }
+        const auto& standalone = hostModeFor(HostKind::Standalone);
+        if (!standalone.clearsProcessorOutput() || !standalone.ownsAudioDevice())
+            return SelfTestResult{false, "standalone must keep monitoring silent and own its audio device"};
+        return SelfTestResult{true, "CLAP/VST3 pass-through and standalone monitoring policies"};
+    });
     registerShellIntegrationTests(r);
 }
 

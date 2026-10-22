@@ -18,3 +18,5 @@ DEC-05 confirmation, code-signing budget, true-peak limiter qualification, key-d
 ## Owner direction, 22 October 2026
 
 The requested audio-plugin release matrix now includes **VST3 and CLAP** on Windows x64, macOS arm64, macOS x86_64 and Linux x64, alongside standalone applications. This supersedes DEC-11 only for VST3; AU remains outside scope. The native CI runners build each platform. A configured workflow is not evidence that artifacts passed host validation or have been published.
+
+The owner also selected the existing **commercial JUCE license** for these builds on 22 October 2026. This supersedes the proposed JUCE AGPL route in DEC-05; no StageSignal source-license grant is added. See `DISTRIBUTION.md`. Commercial entitlement is owner-declared, not audited by the build.
