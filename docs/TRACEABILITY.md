@@ -106,6 +106,9 @@ Acceptance criteria are written so each one is a yes/no check. "Test" names the 
 | NEW-05 | diag + app-ui 14 | `NEW-05: show report ...`, `ui: report export` | Specified | DEC-13; app-ui 14 |
 | NEW-06 | doctor + app-ui 10 | `NEW-06: doctor ...`, `ui: doctor read-only` | Specified | DEC-13; app-ui 10 |
 | NEW-07 | palette + app-ui 12 | `NEW-07: palette ...`, `ui: palette` | Specified | DEC-13; app-ui 12 |
+| FEAT-001 | audio (phrase tracker, musical features) | `FEAT-001: ...` doctest (tests/unit/audio/test_phrase.cpp) | In progress | docs/specs/musical-features.md (FEAT-001); branch claude/wonderful-franklin-kwdd6l |
+| FEAT-002 | palette (key colour mapper, musical features) | `FEAT-002: ...` doctest (tests/unit/palette/test_key_color.cpp) | In progress | docs/specs/musical-features.md (FEAT-002); branch claude/wonderful-franklin-kwdd6l |
+| FEAT-003 | show (beat looks, musical features) | `FEAT-003: ...` doctest (tests/unit/show/test_beat_looks.cpp) | In progress | docs/specs/musical-features.md (FEAT-003); branch claude/wonderful-franklin-kwdd6l |
 
 ### Acceptance criteria
 
@@ -165,4 +168,4 @@ Acceptance criteria are written so each one is a yes/no check. "Test" names the 
 
 - App-layer requirements (windows, devices, UI) have their automated tests defined in `docs/specs/app-shell.md` section 13, `app-ui.md` section 17 and `app-adapters.md` section 15. Those tests run under Xvfb with fakes; real hardware, real OS permission prompts and real assistive technology are `Verified (manual)` at best.
 - Requirements with no automated test possible by nature (REQ-X06 soak, REQ-D04 VGA check, REQ-L06 adapter qualification, REQ-R03 one-hour sync) stay `Specified` until a person records a result in Evidence.
-- Row counts: 72 spec requirements, 7 added features.
+- Row counts: 72 spec requirements, 7 added features (NEW-01..07) and 3 musical features (FEAT-001..003).

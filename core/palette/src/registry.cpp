@@ -48,7 +48,7 @@ std::vector<ActionInfo> build() {
         A(ColorSaturation, "Colour saturation", Look, "Saturation of the scene palette.", kNorm, "", "color vividness"),
 
         A(SetBpm, "Set BPM", Tempo, "Override the detected tempo with a manual value.", kBpm, "", "tempo manual override"),
-        A(TapTempo, "Tap tempo", Tempo, "Tap to set the tempo by hand.", kNone, "", "tap beat"),
+        A(TapTempo, "Tap tempo", Tempo, "Tap to set the tempo by hand.", kNone, "T", "tap beat"),
         A(ReleaseBpmOverride, "Release BPM override", Tempo, "Return to the detected tempo.", kNone, "", "auto tempo"),
         A(SetKey, "Set musical key", Tempo, "Override the detected key (0 to 11 major C to B, 12 to 23 minor C to B).", kKey, "", "manual override"),
         A(ReleaseKeyOverride, "Release key override", Tempo, "Return to the detected key.", kNone, "", "auto key"),
