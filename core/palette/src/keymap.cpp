@@ -135,6 +135,7 @@ KeyMap KeyMap::defaults() {
     m.bindings_.push_back(mk(Key::K, kModCtrl, ActionId::OpenCommandPalette));
     m.bindings_.push_back(mk(Key::Z, kModCtrl, ActionId::Undo));
     m.bindings_.push_back(mk(Key::Y, kModCtrl, ActionId::Redo));
+    m.bindings_.push_back(mk(Key::T, kModNone, ActionId::TapTempo));
     for (int i = 0; i < 8; ++i)
         m.bindings_.push_back(mk(static_cast<Key>('1' + i), kModNone, ActionId::SceneSelect, static_cast<double>(i)));
     return m;

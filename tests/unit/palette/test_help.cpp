@@ -59,7 +59,8 @@ TEST_CASE("REQ-X02: shortcut text collapses digit pads and joins multiple chords
     KeyMap km = KeyMap::defaults();
     CHECK(shortcutText(km, ActionId::SceneSelect) == "1-8");
     CHECK(shortcutText(km, ActionId::NextScene) == "F5");
-    CHECK(shortcutText(km, ActionId::TapTempo).empty());
+    CHECK(shortcutText(km, ActionId::TapTempo) == "T");
+    CHECK(shortcutText(km, ActionId::PrevScene).empty());
     Binding b; b.chord = *parseChord("Alt+N"); b.action = ActionId::NextScene;
     REQUIRE(km.bind(b).ok());
     CHECK(shortcutText(km, ActionId::NextScene) == "Alt+N, F5");

@@ -63,7 +63,7 @@ struct DispatchResult {
 
 class KeyMap {
 public:
-    static KeyMap defaults();                               // F1, F5-F8, Shift+F8, Ctrl+S/K/Z/Y, 1-8 pads
+    static KeyMap defaults();                               // F1, T, F5-F8, Shift+F8, Ctrl+S/K/Z/Y, 1-8 pads
     const std::vector<Binding>& bindings() const { return bindings_; }
     const Binding* lookup(const KeyChord& c) const;
     std::vector<Binding> bindingsFor(ActionId a) const;     // all chords of an action, ordered by chord

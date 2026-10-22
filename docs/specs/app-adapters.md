@@ -1,6 +1,6 @@
 # app-adapters: platform adapters over the portable core
 
-Status: spec v0.2-draft, 20 Oct 2026. Layer: `app/Source/Adapters`. Baseline: spec v0.1 sections 7 to 18, addendum v0.2, `docs/ARCHITECTURE.md`, `core/base` interfaces. Nothing here is implemented. Facts marked [V] were checked against the JUCE `8.0.16-security` source, clap-juce-extensions, the Art-Net 4 PDF or a vendor page (sources at the end); facts marked [U] are unverified and must be confirmed by the first spike.
+Status: spec v0.2-draft, 20 Oct 2026. Layer: `app/Source/Adapters`. Baseline: spec v0.1 sections 7 to 18, addendum v0.2, `docs/ARCHITECTURE.md`, `core/base` interfaces. Implementation status: see the "Implementation status" section at the end. Facts marked [V] were checked against the JUCE `8.0.16-security` source, clap-juce-extensions, the Art-Net 4 PDF or a vendor page (sources at the end); facts marked [U] are unverified and must be confirmed by the first spike.
 
 ## 1. Scope and requirement ids
 
@@ -213,3 +213,40 @@ Under Xvfb: window and focus tests run with the real JUCE peer; there is no soun
 - [A5] X.Org RandR protocol (EDID property).
 - [A6] Local FFmpeg tests in the author's sandbox (kill test, `-/opt` test, `whip` muxer absent); not reproducible from a URL, rerun in CI.
 - [A7] ESTA ANSI E1.31 (sACN): not fetched in this pass, hence [U] markers.
+
+## Implementation status (engine-adapters-desktop, 21 Oct 2026)
+
+Code: `app/Source/Engine/Desktop/**`, `Engine/DesktopAdapters.cpp` (`makeDesktopAdapterSet`, `SS_FAKE_ADAPTERS=1` keeps the pure fakes), `App/LightingScheduler.*`, `App/MidiScheduler.*`. Self-tests `adapters-*` in `Tests/AdaptersDesktopSelfTests.cpp` run headless (Linux, Xvfb, no hardware): 12 of 12 pass.
+
+| Adapter | State | Verified |
+|---|---|---|
+| Audio (`JuceAudioSource`) + `LinearFitTimestampMapper` | Done: AudioDeviceManager input, callback interleaves into a preallocated buffer and calls `IAudioSink::pushBlock`; loss/return supervisor (2 s x 30, then 10 s); mapper converges/rejects outliers/degrades | Linux headless: no-device path, simulated loss/return, mapper maths. A real device, ASIO, CoreAudio hostTime and WASAPI are unverified |
+| MIDI (`JuceMidiProvider`, `MidiDriver`) | Done: enumeration, open in/out, 1 s-class rescan with loss reporting, per-port SPSC rings, engine wiring | Linux headless with zero ports only. No hardware, no virtual ports, no Windows/macOS |
+| UDP (`UdpPacketSink`) | Done: native sockets, bind to chosen interface, multicast IF/TTL, SO_BROADCAST opt-in, non-blocking | Linux loopback, byte-exact. Winsock and macOS branches are guarded code that was not compiled here. No per-sink rate cap: the 1..40 Hz gate is in `LightingEngine`/`LightingScheduler` |
+| Lighting tick handler (`LightingDriver`) | Done: owns `LightingEngine`; the sink is gated so nothing reaches the network while disarmed; transport loss disarms | Test against real UDP on loopback |
+| MIDI tick handler (`MidiDriver`) | Done: reconcile ports, drain rings into `MidiEngine::onBytes`, `poll` to an action sink, `dueOutput` to the output port only while enabled | Only with no ports; output path covered by core tests, not by an adapter test |
+| Durable FS | Done: write + fsync, F_FULLFSYNC on macOS, directory fsync, free space | Linux. Windows directory sync is a documented no-op |
+| Perf counters | Done: /proc, getrusage+mach, GetProcessTimes+PSAPI | Linux only |
+| Log sink (`RingLogSink`) | Done: sanitised, 5 MiB x 5 rotation, bounded ring, drops counted | Linux |
+| Safe ZIP | Done: own central-directory parser (sizes, encryption, symlink, zip64 refused), `validateArchive`, JUCE only inflates and must agree with the parser, size-capped streaming, deterministic atomic write | Linux, 10 hostile archives |
+| Secrets | Windows Credential Manager and Linux libsecret (dlopen) are written but unverified; macOS Keychain is NOT implemented (needs Security.framework linked). With no keychain the store refuses to save and reports Unavailable; there is no file fallback (the encrypted-file fallback of section 10 is not built) | Linux headless: Unavailable path only |
+| Displays | Done with a documented limitation: identity is a hash of mode and scale (no EDID/UUID), polled at 1 s; health is Degraded for that reason | Linux Xvfb, 1 display. No platform identity providers |
+| File dialogs | `FileChooser::launchAsync`, not run in CI | Not run |
+| Serial DMX | Unchanged: `NullSerialDmx` reports Unavailable | n/a |
+
+Not done: audio is not yet wired to `StageSignalProcessor::processBlock` / `AudioProcessorPlayer` (the source feeds `IAudioSink` directly, which is what `AppController` uses). Cue/manual looks for the lighting engine and MIDI mappings must be fed by the controller through `LightingDriver::post` and `MidiDriver::post/wantInput/setActionSink`.
+
+## Implementation status: media, record, broadcast (engine-media-record, 21 Oct 2026)
+
+Code: `Engine/Media/NativeProcess.*` (supervisor), `Engine/Media/ImageDecode.*`, `App/Media/**` (`RecordRunner`, `BroadcastRunner`, `MediaLayers`), `App/MediaWorker.*`. Self-tests (`media:*`, `record:*`, `broadcast:*` in `Tests/MediaRecordSelfTests.cpp`) run headless on Linux against a fake ffmpeg written as an sh script. Real ffmpeg and real streaming endpoints were never run.
+
+| Piece | State | Verified |
+|---|---|---|
+| Process supervisor (P-07) | Done: `posix_spawn`, argv only, scrubbed env, separate stdout/stderr, bounded non-blocking stdin plus a second input pipe (fd 3), stop = EOF then kill. Windows: `CreateProcess` with stdin/stdout/stderr only, no second pipe, so video record and broadcast report "not available" there | Linux: round trip, exit code, kill, missing program. Windows branch not compiled |
+| ffmpeg discovery | Done: user path, next to app, PATH; `-version`, `-encoders`, one-frame test encode per eligible encoder (3 s each, on the worker thread) | Fake script only. libx264 is excluded by the record core (GPL); a hardware encoder or libopenh264 is needed |
+| Recording | Done: WAV always (core `AudioOnlyRecorder`, journal, metadata JSON, markers CSV, disk checks every 5 s); video as an extra Matroska segment process when ffmpeg and an eligible encoder exist; otherwise the view says why and WAV continues. Not started by anything except a user action | Linux with fake ffmpeg; WAV header parsed. Not tested: segment rollover in the app, disk-low stop, encoder crash mid-record, recovery banner |
+| Broadcast | Done: two-step start (summary, then confirm within 15 s), `StartToken` from Ui/Keyboard/Midi only, tap audio and rendered frames into bounded queues, stop kills within the core's budget. Stream key is resolved from the secret store at start and is still on the ffmpeg argv (known weakness) | Fake ffmpeg: Live, stop, no leak into the view. Not tested: reconnect through the app, real RTMPS/SRT |
+| Still images, text raster, layers | Done: sniff and header validation, then `juce::ImageFileFormat`; GIF shows the first frame only; no video decode; up to 3 image layers plus a text banner through `IRenderLayerSource` | PNG, hostile SVG refused, text pixels, compositor offer |
+| Camera | NOT implemented. `juce_video` is not linked and JUCE has no Linux camera (P-04); the adapter stays `NullCameraSource` (Unsupported). A Windows/macOS `juce::CameraDevice` adapter needs `juce_video` in `app/CMakeLists.txt` and a CI build on both | n/a |
+
+Needs from other owners: the desktop adapter set must return `makeNativeProcessSupervisor()` as `processes` (today it is the fake, so ffmpeg is never found in the real app); the controller must call `MediaWorker::setFrameProvider` and route `AddMarker` to `MediaWorker::handleAction`; the UI must call `MediaWorker::configure` (folder, ffmpeg path, broadcast endpoint) and send `StartBroadcast` twice (value 0 for the summary, value 1 to confirm).

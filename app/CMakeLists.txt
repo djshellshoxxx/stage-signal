@@ -28,7 +28,8 @@ target_sources(StageSignal PRIVATE ${SS_APP_SOURCES})
 target_include_directories(StageSignal PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Source)
 target_compile_definitions(StageSignal PUBLIC
   JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0
-  JUCE_USE_CAMERA=1 JUCE_STRICT_REFCOUNTEDPOINTER=1)
+  JUCE_USE_CAMERA=1 JUCE_STRICT_REFCOUNTEDPOINTER=1
+  JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1)  # app-shell D-SHELL-01: StageSignalApp replaces the stock holder
 target_compile_features(StageSignal PUBLIC cxx_std_17)
 
 # Core modules linked in as they land (each is portable and JUCE-free).
@@ -47,4 +48,15 @@ target_link_libraries(StageSignal PRIVATE
   PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 if(NOT MSVC)
   target_compile_options(StageSignal PRIVATE -Wno-unused-parameter)
+endif()
+
+# macOS Keychain adapter (Engine/Desktop secret store) needs Security.framework.
+if(APPLE)
+  target_link_libraries(StageSignal PRIVATE "-framework Security" "-framework CoreFoundation")
+endif()
+
+# Allocation counter for the `shell: callback no alloc` self-test: standalone executable only. It replaces global
+# operator new, which must never happen inside a plugin loaded by a host.
+if(TARGET StageSignal_Standalone)
+  target_sources(StageSignal_Standalone PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Hooks/AllocHook.cpp)
 endif()
