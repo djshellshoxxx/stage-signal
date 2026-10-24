@@ -13,6 +13,17 @@
 #include <X11/extensions/Xrandr.h>
 #endif
 namespace ss::app {
+std::string macDisplayIdentity(std::uint32_t vendor, std::uint32_t model, std::uint32_t serial) {
+    constexpr std::uint32_t unknownVendor = 0x756e6b6eU;  // kDisplayVendorIDUnknown ('unkn').
+    constexpr std::uint32_t genericModel = 0x00000717U;   // kDisplayProductIDGeneric.
+    constexpr std::uint32_t noMonitor = 0xffffffffU;
+    if (vendor == 0 || vendor == unknownVendor || vendor == noMonitor ||
+        model == 0 || model == genericModel || model == noMonitor ||
+        serial == 0 || serial == noMonitor) return {};
+    const auto tuple = std::to_string(vendor) + ":" + std::to_string(model) + ":" + std::to_string(serial);
+    return "macos:" + ss::Sha256::hashHex(tuple);
+}
+
 const NativeDisplayRecord* uniqueNativeDisplay(const std::vector<NativeDisplayRecord>& records, int x, int y, int width, int height) {
     const NativeDisplayRecord* found = nullptr;
     for (const auto& record : records) {
@@ -56,17 +67,11 @@ std::vector<NativeDisplayRecord> nativeDisplayIdentities() {
     if (CGGetActiveDisplayList(128, displays, &count) != kCGErrorSuccess) return result;
     for (uint32_t i = 0; i < count; ++i) {
         const auto display = displays[i];
-        CFUUIDRef uuid = CGDisplayCreateUUIDFromDisplayID(display);
-        if (!uuid) continue;
-        CFStringRef text = CFUUIDCreateString(kCFAllocatorDefault, uuid);
-        char buffer[256]{};
-        const bool ok = text && CFStringGetCString(text, buffer, sizeof(buffer), kCFStringEncodingUTF8);
-        if (text) CFRelease(text);
-        CFRelease(uuid);
-        if (!ok) continue;
+        const auto identity = macDisplayIdentity(CGDisplayVendorNumber(display), CGDisplayModelNumber(display), CGDisplaySerialNumber(display));
+        if (identity.empty()) continue;
         const auto bounds = CGDisplayBounds(display);
         result.push_back({static_cast<int>(bounds.origin.x), static_cast<int>(bounds.origin.y), static_cast<int>(bounds.size.width), static_cast<int>(bounds.size.height),
-                          std::string("macos:") + buffer, "cg:" + std::to_string(display)});
+                          identity, "cg:" + std::to_string(display)});
     }
 #elif JUCE_LINUX
     // Runtime-loaded X11 avoids opening a display or loading X11 on unsupported Wayland/headless paths.
