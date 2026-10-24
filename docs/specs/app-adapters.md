@@ -60,9 +60,11 @@ The host owns the device. `processBlock` copies into the same `SpscQueue` and st
 |---|---|---|
 | Windows | `QueryDisplayConfig` / `DisplayConfigGetDeviceInfo` with `DISPLAYCONFIG_TARGET_DEVICE_NAME` (monitorDevicePath, EDID manufacturer + product code) | documented fields [V]; matching to a JUCE `Display` by bounds |
 | Linux X11 | XRandR output + `EDID` output property | [V] property exists; Wayland: no EDID via X, falls back to name + size |
-| macOS | `CGDisplayCreateUUIDFromDisplayID` | [U] the Apple doc page did not load; confirm in the spike |
+| macOS | `CGDisplayVendorNumber`, `CGDisplayModelNumber`, and `CGDisplaySerialNumber` from CoreGraphics | public API; identity is unavailable if any field is zero [A8-A10] |
 
 Identity record: `{vendor, product, serialOrHash, connector, sizePx}`. Matching order: serial/EDID hash, then connector, then size+position. Two displays with identical records (same model, no serial) are "indistinguishable": their role stays unassigned until the operator confirms with the Identify flow (REQ-D01). The role map is stored by identity.
+
+For macOS, build the canonical decimal tuple `vendor:model:serial` from the three CoreGraphics values and set identity to `macos:` plus the lowercase SHA-256 of that tuple. A zero field means identity is unavailable; do not fall back to the display ID, connector, geometry, mode, or a random value. Do not persist or log the raw serial. Equal tuples remain ambiguous and must be rejected by the common matching rule. This keeps the identity independent of resolution, arrangement, and scale, while making unknown or non-unique hardware fail closed.
 
 ### 4.2 Audience windows
 
@@ -213,6 +215,9 @@ Under Xvfb: window and focus tests run with the real JUCE peer; there is no soun
 - [A5] X.Org RandR protocol (EDID property).
 - [A6] Local FFmpeg tests in the author's sandbox (kill test, `-/opt` test, `whip` muxer absent); not reproducible from a URL, rerun in CI.
 - [A7] ESTA ANSI E1.31 (sACN): not fetched in this pass, hence [U] markers.
+- [A8] Apple Developer Documentation, [CGDisplayVendorNumber](https://developer.apple.com/documentation/coregraphics/cgdisplayvendornumber(_:)); accessed 2026-10-24.
+- [A9] Apple Developer Documentation, [CGDisplayModelNumber](https://developer.apple.com/documentation/coregraphics/cgdisplaymodelnumber(_:)); accessed 2026-10-24.
+- [A10] Apple Developer Documentation, [CGDisplaySerialNumber](https://developer.apple.com/documentation/coregraphics/cgdisplayserialnumber(_:)); accessed 2026-10-24.
 
 ## Implementation status (engine-adapters-desktop, 21 Oct 2026)
 
@@ -230,7 +235,7 @@ Code: `app/Source/Engine/Desktop/**`, `Engine/DesktopAdapters.cpp` (`makeDesktop
 | Log sink (`RingLogSink`) | Done: sanitised, 5 MiB x 5 rotation, bounded ring, drops counted | Linux |
 | Safe ZIP | Done: own central-directory parser (sizes, encryption, symlink, zip64 refused), `validateArchive`, JUCE only inflates and must agree with the parser, size-capped streaming, deterministic atomic write | Linux, 10 hostile archives |
 | Secrets | Windows Credential Manager and Linux libsecret (dlopen) are written but unverified; macOS Keychain is NOT implemented (needs Security.framework linked). With no keychain the store refuses to save and reports Unavailable; there is no file fallback (the encrypted-file fallback of section 10 is not built) | Linux headless: Unavailable path only |
-| Displays | Done with a documented limitation: identity is a hash of mode and scale (no EDID/UUID), polled at 1 s; health is Degraded for that reason | Linux Xvfb, 1 display. No platform identity providers |
+| Displays | Partial: Windows device-path and Linux XRandR/EDID providers are present; the macOS provider does not compile against the current SDK because it calls an undeclared UUID function. The implementation must use the public serial-backed tuple above and return no identity for incomplete tuples. | Existing Linux headless run only; the macOS compile failure is recorded in the Stage Signal follow-on handoff below. No physical multi-display qualification |
 | File dialogs | `FileChooser::launchAsync`, not run in CI | Not run |
 | Serial DMX | Unchanged: `NullSerialDmx` reports Unavailable | n/a |
 
@@ -254,3 +259,13 @@ Needs from other owners: the desktop adapter set must return `makeNativeProcessS
 ## Camera implementation update, 22 October 2026
 
 `Engine/Desktop/JuceCameraSource` uses JUCE CameraDevice on Windows/macOS, with an explicit selected-name binding and no fallback. Linux returns Unsupported, as specified. The capture callback only stores an image reference; MEDIA polling converts bounded RGBA frames. The application supplies the macOS camera usage description. `App/Media/CameraFeed` owns preview/publication/source-loss policy and passes the published camera layer to the compositor. A fake-camera self-test covers privacy, output routing, loss timeout and close; no real camera has been qualified.
+
+## Stage Signal follow-on handoff: macOS display identity
+
+This work is based on live repository comparisons, not a reconstruction of the unavailable parent checkpoint. The selected integrated base is `feat/release-formats` at `058fc7e168bdb96683956a09f5c342bf0d8f972e`; the dedicated compare confirms the live branch is identical to that SHA, 23 commits ahead of `main` (`62db70174c8ed89f7b4e5eef0ee5a1b21909c577`) and 6 commits ahead of PR 15 (`d4aaab297a7366317074441040517835038082bc`). PRs 13, 14, and 15 remain open; PR 14 edits README/wiki files, so keep this follow-on away from README until that overlap is reconciled. The diverged `claude/jolly-hawking-608dbp` line is not a suitable base. The parent checkpoint `118c7302eec0248dc240b13edacc986f14908bcf` is not present in the clone or live refs.
+
+The macOS build failure on `feat/release-formats` is `CGDisplayCreateUUIDFromDisplayID` being undeclared in `NativeDisplayIdentity.cpp`; the beta workflow failed on both macOS architectures and skipped release publication. This follow-on replaces that call with the documented CoreGraphics vendor/model/serial tuple, hashes it, and refuses identity when any field is zero. No release workflow should be dispatched for verification because it uploads artifacts; use pull-request CI only. The prior Linux self-test report is 52 app tests passing in four runs on the base, but this macOS path has not yet been compiled here.
+
+**Status at spec checkpoint:** contract updated first; implementation and new self-test are pending. Local environment availability and pull-request CI will be recorded after the implementation slice. Real macOS displays, serial availability, hot-plug persistence, and multi-display ambiguity remain hardware acceptance items. Do not claim device qualification. Keep the product description truthful as software artwork while retaining functional development and acceptance detail; README changes are deferred because PR 14 is still open.
+
+**Next:** implement/test the pure tuple-to-identity function in the `engine-adapters-desktop` lane, use it from the CoreGraphics provider, add a macOS app compile-only pull-request CI job without artifact uploads, run available local tests, then open a narrowly scoped PR based on this exact integrated branch. Include the final commit SHA, test commands/results, CI outcomes, failures, and unresolved hardware checks in this handoff before asking for integration.
