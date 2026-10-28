@@ -121,6 +121,22 @@ MediaTextPanel::MediaTextPanel(UiModel& model) : PanelBase(model, "Media / Text"
                         juce::dontSendNotification);
     };
     clear_.setTooltip("Clears the published text on the selected outputs.");
+    styleLabel(optionsLabel_, false);
+    optionsLabel_.setText("Show for / fade", juce::dontSendNotification);
+    textDuration_.setComponentID("text.duration"); textFade_.setComponentID("text.fade"); textScroll_.setComponentID("text.scroll");
+    textDuration_.addItem("Until cleared", 1); textDuration_.addItem("5 seconds", 2); textDuration_.addItem("10 seconds", 3);
+    textDuration_.addItem("30 seconds", 4); textDuration_.addItem("60 seconds", 5);
+    textFade_.addItem("No fade", 1); textFade_.addItem("0.5 s fade", 2); textFade_.addItem("1 s fade", 3); textFade_.addItem("2 s fade", 4);
+    textDuration_.setSelectedId(1, juce::dontSendNotification); textFade_.setSelectedId(2, juce::dontSendNotification);
+    textDuration_.setTooltip("How long the published text stays on screen. It applies to the next Publish.");
+    textFade_.setTooltip("Fade in and out time. It applies to the next Publish.");
+    textScroll_.setTooltip("One pass from right to left instead of staying in place. It applies to the next Publish.");
+    static const char* const kDurations[] = {"0", "5", "10", "30", "60"};
+    static const char* const kFades[] = {"0", "0.5", "1", "2"};
+    textDuration_.onChange = [this] { saveOption("text.duration", kDurations[juce::jlimit(0, 4, textDuration_.getSelectedId() - 1)]); };
+    textFade_.onChange = [this] { saveOption("text.fade", kFades[juce::jlimit(0, 3, textFade_.getSelectedId() - 1)]); };
+    textScroll_.onClick = [this] { saveOption("text.scroll", textScroll_.getToggleState() ? "1" : "0"); };
+    for (auto* c : std::initializer_list<juce::Component*>{&optionsLabel_, &textDuration_, &textFade_, &textScroll_}) addAndMakeVisible(c);
     styleLabel(status_, false);
     updateCount();
 
@@ -195,13 +211,35 @@ void MediaTextPanel::resized() {
     buttons.removeFromLeft(8);
     clear_.setBounds(buttons.removeFromLeft(150).reduced(0, 2));
     publishNote_.setBounds(r.removeFromTop(20));
+    r.removeFromTop(2);
+    auto options = r.removeFromTop(28);
+    optionsLabel_.setBounds(options.removeFromLeft(100));
+    textDuration_.setBounds(options.removeFromLeft(130).reduced(0, 1)); options.removeFromLeft(6);
+    textFade_.setBounds(options.removeFromLeft(100).reduced(0, 1)); options.removeFromLeft(6);
+    textScroll_.setBounds(options.removeFromLeft(130));
     r.removeFromTop(4);
     if (previewing_) previewLabel_.setBounds(r.removeFromTop(juce::jmin(r.getHeight(), 60)));
     else previewLabel_.setBounds(juce::Rectangle<int>());
     status_.setBounds(r.removeFromTop(22));
 }
 
+void MediaTextPanel::saveOption(const char* key, const std::string& value) {
+    if (restoringOptions_) return;
+    AppCommand c; c.kind = AppCommandKind::SetPref; c.text = key; c.text2 = value;
+    model_.postCommand(c);
+}
+
 void MediaTextPanel::uiSnapshotChanged(const UiSnapshot& s) {
+    if (!optionsRestored_ && !s.prefs.empty()) {                      // saved text options come back once
+        optionsRestored_ = true;
+        restoringOptions_ = true;
+        for (const auto& kv : s.prefs) {
+            if (kv.first == "text.duration") textDuration_.setSelectedId(kv.second == "5" ? 2 : kv.second == "10" ? 3 : kv.second == "30" ? 4 : kv.second == "60" ? 5 : 1, juce::dontSendNotification);
+            else if (kv.first == "text.fade") textFade_.setSelectedId(kv.second == "0" ? 1 : kv.second == "1" ? 3 : kv.second == "2" ? 4 : 2, juce::dontSendNotification);
+            else if (kv.first == "text.scroll") textScroll_.setToggleState(kv.second == "1", juce::dontSendNotification);
+        }
+        restoringOptions_ = false;
+    }
     const int slot = juce::jlimit(0, 2, clipSlot_.getSelectedId() - 1);
     const auto& clip = s.media.clips[static_cast<std::size_t>(slot)];
     clipApply_.setEnabled(clip.animated); clipPause_.setEnabled(clip.animated);

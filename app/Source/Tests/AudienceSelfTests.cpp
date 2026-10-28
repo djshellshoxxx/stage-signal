@@ -2,6 +2,7 @@
 // REQ-S05/S06 published text. The compositor and overlay rules themselves are covered by the core compose tests; this file
 // proves the app actually feeds them.
 #include <chrono>
+#include <functional>
 #include <cstring>
 #include <thread>
 #include <memory>
@@ -9,6 +10,10 @@
 #include "App/RenderHost.h"
 #include "Engine/Fakes.h"
 #include "Tests/SelfTest.h"
+#include "UI/Live/Actions.h"
+#include "UI/MediaTextPanel.h"
+#include "UI/SetupPanel.h"
+#include <juce_gui_basics/juce_gui_basics.h>
 
 namespace ss::app {
 namespace {
@@ -137,6 +142,86 @@ SelfTestResult toggleThroughController() {
     REQUIRE_T(!bad.accepted, "ToggleOverlayBpmKey for an output that does not exist was accepted");
     return {true, "toggle accepted for one output and for all, refused for an unknown output"};
 }
+
+// ---- operator controls: audio-loss policy, true-peak limiter opt-in, text options ------------------------------------------
+struct CommandCatcher final : UiModelListener {
+    std::vector<CommandOutcome> commands;
+    void uiActionOutcome(const ActionOutcome&) override {}
+    void uiCommandOutcome(const CommandOutcome& o) override { commands.push_back(o); }
+};
+
+bool waitPoll(AppController& c, const std::function<bool()>& done, int ms) {
+    for (int t = 0; t < ms; t += 10) { c.ui().poll(); if (done()) return true; std::this_thread::sleep_for(std::chrono::milliseconds(10)); }
+    c.ui().poll();
+    return done();
+}
+
+SelfTestResult prefsAreValidated() {
+    AppConfig cfg; cfg.headless = true; cfg.startAudio = false;
+    AppController c(makeFakeAdapterSet(false), cfg);
+    CommandCatcher cat;
+    c.ui().addListener(&cat);
+    if (!c.start().ok()) return {false, "start"};
+    auto send = [&](const char* key, const char* value, bool* accepted) {
+        AppCommand cmd; cmd.kind = AppCommandKind::SetPref; cmd.text = key; cmd.text2 = value;
+        std::uint64_t id = 0;
+        if (!c.ui().postCommand(cmd, &id)) return false;
+        return waitPoll(c, [&] { for (const auto& o : cat.commands) if (o.correlationId == id) { *accepted = o.ok; return true; } return false; }, 3000);
+    };
+    struct Row { const char* key; const char* value; bool expect; };
+    const Row rows[] = {
+        {"audio.losspolicy", "idle", true}, {"audio.losspolicy", "continue", true}, {"audio.losspolicy", "bogus", false}, {"audio.losspolicy", "", false},
+        {"dynamics.truepeak", "1", true}, {"dynamics.truepeak", "yes", false},
+        {"text.duration", "0", true}, {"text.duration", "10", true}, {"text.duration", "0.05", false}, {"text.duration", "5000", false}, {"text.duration", "abc", false},
+        {"text.duration", "nan", false}, {"text.fade", "0.5", true}, {"text.fade", "-1", false}, {"text.scroll", "1", true}, {"text.scroll", "2", false},
+        {"text.y", "0.9", true}, {"text.y", "1.5", false}, {"text.size", "0.2", true}, {"text.size", "0", false},
+        {"streamkey.secret", "x", false}, {"broadcast.host", "evil", false}};
+    std::string bad;
+    for (const auto& r : rows) {
+        bool accepted = !r.expect;
+        if (!send(r.key, r.value, &accepted)) { bad = std::string("no outcome for ") + r.key; break; }
+        if (accepted != r.expect) { bad = std::string(r.key) + "=" + r.value + (r.expect ? " was refused" : " was accepted"); break; }
+    }
+    const std::string lossPref = c.pref("audio.losspolicy");      // last accepted value is "continue"
+    const std::string rejectedStaysOut = c.pref("text.size");     // "0" was refused, so the earlier 0.2 stays
+    c.ui().removeListener(&cat);
+    c.stop();
+    if (!bad.empty()) return {false, bad};
+    if (lossPref != "continue") return {false, "refused value replaced a saved preference (audio.losspolicy=" + lossPref + ")"};
+    if (rejectedStaysOut != "0.2") return {false, "refused value replaced a saved preference (text.size=" + rejectedStaysOut + ")"};
+    return {true, "22 values checked: allowed ones accepted, out-of-range, malformed and unknown keys refused, refusals change nothing"};
+}
+
+SelfTestResult operatorControlsWritePrefs() {
+    AppConfig cfg; cfg.headless = true; cfg.startAudio = false;
+    AppController c(makeFakeAdapterSet(false), cfg);
+    if (!c.start().ok()) return {false, "start"};
+    if (!waitPoll(c, [&] { return c.ui().snapshot() != nullptr; }, 3000)) return {false, "no snapshot"};
+    SetupPanel setup(c.ui());
+    setup.setBounds(0, 0, 800, 456);
+    MediaTextPanel media(c.ui());
+    media.setBounds(0, 0, 800, 456);
+    c.ui().poll();
+    auto* loss = dynamic_cast<juce::ComboBox*>(uikit::findById(&setup, "setup.audio.losspolicy"));
+    auto* tp = dynamic_cast<juce::Button*>(uikit::findById(&setup, "setup.audio.truepeak"));
+    auto* dur = dynamic_cast<juce::ComboBox*>(uikit::findById(&media, "text.duration"));
+    auto* fade = dynamic_cast<juce::ComboBox*>(uikit::findById(&media, "text.fade"));
+    auto* scroll = dynamic_cast<juce::Button*>(uikit::findById(&media, "text.scroll"));
+    if (!loss || !tp || !dur || !fade || !scroll) return {false, "an operator control is missing"};
+    if (!loss->isEnabled() || !tp->isEnabled() || !dur->isEnabled()) return {false, "a control is disabled"};
+    loss->setSelectedId(2, juce::sendNotificationSync);
+    tp->setToggleState(true, juce::dontSendNotification); if (tp->onClick) tp->onClick();
+    dur->setSelectedId(3, juce::sendNotificationSync);       // 10 seconds
+    fade->setSelectedId(4, juce::sendNotificationSync);      // 2 s
+    scroll->setToggleState(true, juce::dontSendNotification); if (scroll->onClick) scroll->onClick();
+    const bool saved = waitPoll(c, [&] {
+        return c.pref("audio.losspolicy") == "idle" && c.pref("dynamics.truepeak") == "1" && c.pref("text.duration") == "10" &&
+               c.pref("text.fade") == "2" && c.pref("text.scroll") == "1";
+    }, 3000);
+    c.stop();
+    return saved ? SelfTestResult{true, "audio-loss policy, true-peak opt-in and the three text options reach the saved preferences"}
+                 : SelfTestResult{false, "a control did not reach the saved preferences"};
+}
 }  // namespace
 
 void registerAudienceSelfTests(SelfTestRegistry& r) {
@@ -144,6 +229,8 @@ void registerAudienceSelfTests(SelfTestRegistry& r) {
     r.add("audience: REQ-S05 text only when published and only on the selected output", textOnlyWhenPublishedAndTargeted);
     r.add("audience: REQ-S06 showText policy and timed expiry", textPolicyAndDuration);
     r.add("audience: ToggleOverlayBpmKey reaches the router", toggleThroughController);
+    r.add("audience: SetPref validates policy, limiter and text options", prefsAreValidated);
+    r.add("audience: operator controls write the saved preferences", operatorControlsWritePrefs);
 }
 
 }  // namespace ss::app

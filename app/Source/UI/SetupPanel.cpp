@@ -73,6 +73,18 @@ public:
         };
         note(rateNote_);
         rateNote_.setText("Only 44.1 kHz and 48 kHz are supported.", juce::dontSendNotification);
+        add(audioLoss_, "setup.audio.losspolicy");
+        audioLoss_.addItem("If audio is lost: keep the show running", 1);
+        audioLoss_.addItem("If audio is lost: show the idle screen", 2);
+        audioLoss_.setSelectedId(1, juce::dontSendNotification);
+        audioLoss_.setTooltip("What the audience sees when the audio input stops delivering for about a second (REQ-D09).");
+        audioLoss_.onChange = [this] { savePref("audio.losspolicy", audioLoss_.getSelectedId() == 2 ? "idle" : "continue"); };
+        add(truePeak_, "setup.audio.truepeak");
+        truePeak_.setButtonText("True-peak limiter for recording");
+        truePeak_.setTooltip("Keeps the reconstructed peak under the ceiling. Uses more CPU and adds under 1 ms. Applies the next time StageSignal starts.");
+        truePeak_.onClick = [this] { savePref("dynamics.truepeak", truePeak_.getToggleState() ? "1" : "0"); };
+        note(truePeakNote_);
+        truePeakNote_.setText("Applies the next time StageSignal starts. Off by default.", juce::dontSendNotification);
 
         header(displayHead_, "Displays and audience outputs");
         note(displayNote_);
@@ -195,6 +207,8 @@ public:
                 const auto parsed = std::from_chars(text.data(), text.data() + text.size(), id);
                 if (parsed.ec == std::errc() && parsed.ptr == text.data() + text.size()) savedDisplays_[id] = kv.second;
             }
+            else if (kv.first == "audio.losspolicy") audioLoss_.setSelectedId(kv.second == "idle" ? 2 : 1, juce::dontSendNotification);
+            else if (kv.first == "dynamics.truepeak") truePeak_.setToggleState(kv.second == "1", juce::dontSendNotification);
             else if (kv.first == "ui.reduce") { setup::appearance().reduceMotion = kv.second == "1"; reduce_.setToggleState(kv.second == "1", juce::dontSendNotification); }
         }
         restoring_ = false;
@@ -243,6 +257,7 @@ public:
         full(audioState_, 22);
         row(kRowH, {{&deviceType_, 130}, {&deviceName_, 0}, {&applyDevice_, 130}});
         row(kRowH, {{&rate_, 130}, {&rateNote_, 0}});
+        row(kRowH, {{&audioLoss_, 330}, {&truePeak_, 250}, {&truePeakNote_, 0}});
         y += 6;
         head(displayHead_);
         full(displayNote_, 22);
@@ -385,13 +400,13 @@ private:
     bool prefsRestored_ = false, restoring_ = false;
     juce::TextButton runWizard_;
     juce::Label audioHead_, audioState_, rateNote_, displayHead_, displayNote_, safetyHead_, strobeNote_,
-        appearanceHead_, appearanceNote_, filesHead_, filesNote_, benchHead_, benchNote_, notice_;
-    juce::ComboBox deviceType_, rate_, displayBox_, theme_;
+        appearanceHead_, appearanceNote_, filesHead_, filesNote_, benchHead_, benchNote_, notice_, truePeakNote_;
+    juce::ComboBox deviceType_, rate_, displayBox_, theme_, audioLoss_;
     juce::TextEditor deviceName_;
     juce::ToggleButton benchLock_;
     juce::TextButton benchRun_, benchFull_, benchCancel_;
     juce::TextButton applyDevice_, refreshDisplays_, identify_, save_, saveAs_, open_;
-    juce::ToggleButton strobe_, clean_, reduce_;
+    juce::ToggleButton strobe_, clean_, reduce_, truePeak_;
 };
 
 SetupPanel::SetupPanel(UiModel& model) : PanelBase(model, "Setup"), outputs_(model) {

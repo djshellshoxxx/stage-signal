@@ -41,6 +41,11 @@ private:
     juce::TextButton import_{"Import..."}, remove_{"Remove"};
     juce::TextEditor draft_;
     juce::TextButton preview_{"Preview"}, publish_{"Publish"}, clear_{"Clear published"};
+    juce::Label optionsLabel_;
+    juce::ComboBox textDuration_, textFade_;
+    juce::ToggleButton textScroll_{"Scroll across"};
+    bool optionsRestored_ = false, restoringOptions_ = false;
+    void saveOption(const char* key, const std::string& value);
     std::uint64_t clearCorrelation_ = 0;
     std::unique_ptr<juce::FileChooser> chooser_;
     std::uint64_t cmdCorrelation_ = 0;
