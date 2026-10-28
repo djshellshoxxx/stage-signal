@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "Engine/Desktop/DesktopCommon.h"
 #include "Engine/Desktop/DesktopSystem.h"
+#include "Engine/Desktop/NativeDisplayIdentity.h"
 
 namespace ss::app {
 
@@ -23,11 +24,20 @@ struct JuceDisplayProvider::Impl final : juce::Timer {
     ss::router::Topology read() const {
         ss::router::Topology t;
         const auto& ds = juce::Desktop::getInstance().getDisplays();
+        const auto native = nativeDisplayIdentities();
         int i = 0;
         for (const auto& d : ds.displays) {
             ss::router::PhysicalDisplay p;
             p.identity = hashId(d);
             p.connector = "display" + std::to_string(i++) + "@" + std::to_string(d.physicalBounds.getX()) + "," + std::to_string(d.physicalBounds.getY());
+#if JUCE_MAC
+            const auto nativeBounds = d.logicalBounds.toNearestInt();
+#else
+            const auto nativeBounds = d.physicalBounds;
+#endif
+            if (const auto* record = uniqueNativeDisplay(native, nativeBounds.getX(), nativeBounds.getY(), nativeBounds.getWidth(), nativeBounds.getHeight())) {
+                p.identity = record->identity; p.connector = record->connector;
+            }
             p.width = d.physicalBounds.getWidth(); p.height = d.physicalBounds.getHeight();
             p.dpiScale = d.scale; p.primary = d.isMain;
             t.push_back(std::move(p));
@@ -63,7 +73,9 @@ void JuceDisplayProvider::stop() { impl_->stopTimer(); impl_->started = false; }
 
 AdapterHealth JuceDisplayProvider::health() const {
     if (!impl_->started) return {AdapterState::Stopped, {}};
-    return {AdapterState::Degraded, "no hardware display identity (EDID) available; identical monitors are indistinguishable"};
+    for (const auto& display : impl_->cur)
+        if (display.identity.rfind("juce:", 0) == 0) return {AdapterState::Degraded, "native display identity unavailable or ambiguous; confirm role explicitly"};
+    return {AdapterState::Running, {}};
 }
 
 ss::router::Topology JuceDisplayProvider::topology() {

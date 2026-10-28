@@ -252,6 +252,7 @@ void AppController::runStopStage(const char* name, int timeoutMs, const std::fun
 }
 
 void AppController::stop() {
+    benchmark_.stop();
     const bool anyThread = control_ || analysisT_ || renderT_ || light_ || midiT_ || io_;
     if (!started_ && !anyThread) return;
     { std::lock_guard<std::mutex> g(logMutex_); stopLog_.clear(); }

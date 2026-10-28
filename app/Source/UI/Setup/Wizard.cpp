@@ -1,6 +1,7 @@
 #include "UI/Setup/Wizard.h"
 #include "UI/Live/Actions.h"
 #include "UI/Theme.h"
+#include "UI/Setup/WizardProgress.h"
 #include <algorithm>
 
 namespace ss::app::setup {
@@ -46,6 +47,10 @@ Wizard::Wizard(UiModel& model, std::function<void()> onFinish, std::function<voi
         if (step_ == 1) {
             sendAction(model_, ss::ActionId::IdentifyDisplays, 0.0);
             detail_.setText("Numbers are shown on each display for 5 seconds.", juce::dontSendNotification);
+        } else if (step_ == 7) {
+            AppCommand command;
+            command.kind = benchmarkRunning_ ? AppCommandKind::CancelBenchmark : AppCommandKind::RunBenchmark;
+            model_.postCommand(command);
         } else if (step_ == 6) {
             chooser_ = std::make_unique<juce::FileChooser>("Choose the recording folder", juce::File(), "", true);
             chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
@@ -60,6 +65,11 @@ Wizard::Wizard(UiModel& model, std::function<void()> onFinish, std::function<voi
                                   });
         }
     };
+    if (auto snapshot = model_.snapshot()) for (const auto& pref : snapshot->prefs) {
+        WizardProgress progress;
+        if (pref.first != "wizard.progress" || !WizardProgress::decode(pref.second, progress) || progress.completed) continue;
+        step_ = progress.step; audioSeen_ = progress.audioSeen; audioSkipped_ = progress.audioSkipped; result_ = progress.results;
+    }
     showStep();
 }
 
@@ -69,10 +79,17 @@ std::string Wizard::stepTitle() const { return kTitles[step_]; }
 
 bool Wizard::canAdvance() const {
     if (step_ == 2) return audioSeen_ || audioSkipped_;
+    if (step_ == 7) return !benchmarkRunning_;
     return true;
 }
 
 void Wizard::observe(const UiSnapshot& s) {
+    benchmarkRunning_ = s.benchmark.running;
+    if (step_ == 7) {
+        action_.setButtonText(benchmarkRunning_ ? "Cancel benchmark" : "Run quick benchmark");
+        action_.setTooltip(juce::String(s.benchmark.note));
+        next_.setEnabled(canAdvance());
+    }
     lastPeakDb_ = std::max(s.features.peakDb[0], s.features.peakDb[1]);
     if (step_ == 2 && lastPeakDb_ > -40.f) audioSeen_ = true;
     if (step_ == 2) {
@@ -89,6 +106,10 @@ void Wizard::next() {
 }
 
 void Wizard::skip() {
+    if (step_ == 7 && benchmarkRunning_) {
+        AppCommand command; command.kind = AppCommandKind::CancelBenchmark; model_.postCommand(command);
+        benchmarkRunning_ = false;
+    }
     if (step_ == 2) audioSkipped_ = true;
     recordAndAdvance(true);
 }
@@ -96,6 +117,7 @@ void Wizard::skip() {
 void Wizard::back() {
     if (step_ == 0) return;
     --step_;
+    saveProgress(false);
     showStep();
 }
 
@@ -115,13 +137,25 @@ Wizard::Summary Wizard::summary() const {
 }
 
 void Wizard::finish() {
+    if (step_ != kSteps - 1 || !saveProgress(true)) return;
     if (onFinish_) onFinish_();
+}
+
+bool Wizard::saveProgress(bool completed) {
+    WizardProgress progress;
+    progress.step = step_; progress.completed = completed; progress.audioSeen = audioSeen_; progress.audioSkipped = audioSkipped_;
+    progress.results = result_;
+    AppCommand command; command.kind = AppCommandKind::SetPref; command.text = "wizard.progress"; command.text2 = progress.encode();
+    if (model_.postCommand(command)) return true;
+    detail_.setText("Setup progress could not be queued. Try again in a moment.", juce::dontSendNotification);
+    return false;
 }
 
 void Wizard::recordAndAdvance(bool wasSkipped) {
     result_[static_cast<std::size_t>(step_)] = wasSkipped ? 2 : 1;
     if (step_ < kSteps - 1) {
         ++step_;
+        saveProgress(false);
         showStep();
     } else {
         finish();
@@ -147,7 +181,7 @@ void Wizard::showStep() {
         case 4: text = "MIDI mapping is done on the MIDI/Lighting tab. Skip this step for now."; break;
         case 5: text = "Lighting protocol and destination are set on the MIDI/Lighting tab. You arm it later there. Lighting stays Disarmed."; break;
         case 6: text = "Pick the folder where recordings are saved. Recording stays off until you press Record."; actionText = "Choose folder"; break;
-        case 7: text = "A quick benchmark is not available in this build. The summary lists what is set up and what is off."; break;
+        case 7: actionText = "Run quick benchmark"; text = "The software benchmark uses discard outputs only. Missing device and latency evidence keeps the profile unqualified. The summary lists what is set up and what is off."; break;
         default: break;
     }
     body_.setText(text, juce::dontSendNotification);

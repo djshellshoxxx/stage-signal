@@ -1,5 +1,6 @@
 #include "UI/OperatorRoot.h"
 #include "UI/Live/Shortcuts.h"
+#include "UI/Setup/WizardProgress.h"
 
 namespace ss::app {
 
@@ -19,6 +20,7 @@ OperatorRoot::OperatorRoot(UiModel& model)
     model_.addListener(this);
     setWantsKeyboardFocus(true);
     setSize(theme::kDefaultW, theme::kDefaultH);
+    if (auto snapshot = model_.snapshot()) uiSnapshotChanged(*snapshot);
 }
 
 OperatorRoot::~OperatorRoot() { model_.removeListener(this); }
@@ -30,6 +32,13 @@ void OperatorRoot::sendRecovery(AppCommandKind k) {
 }
 
 void OperatorRoot::uiSnapshotChanged(const UiSnapshot& s) {
+    if (!wizardOffered_ && !s.headless && s.host == HostKind::Standalone && !s.recovery && !s.secondary) {
+        wizardOffered_ = true;
+        setup::WizardProgress progress;
+        bool completed = false;
+        for (const auto& pref : s.prefs) if (pref.first == "wizard.progress" && setup::WizardProgress::decode(pref.second, progress)) completed = progress.completed;
+        if (!completed) { tabs_.showTab(Tab::Setup); tabs_.setup().runWizard(); }
+    }
     const bool rec = s.recoveryInfo.active, sec = s.secondary;
     const bool want = rec || sec;
     juce::String text;

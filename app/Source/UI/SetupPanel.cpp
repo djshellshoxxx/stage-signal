@@ -3,6 +3,9 @@
 #include "UI/Live/Shortcuts.h"
 #include "UI/Setup/AppearanceSettings.h"
 #include <functional>
+#include <map>
+#include <charconv>
+#include "UI/Audience/DisplaySafety.h"
 
 namespace ss::app {
 
@@ -88,11 +91,15 @@ public:
             r.name = std::make_unique<juce::Label>();
             r.open = std::make_unique<juce::TextButton>();
             r.close = std::make_unique<juce::TextButton>();
+            r.restore = std::make_unique<juce::TextButton>();
             r.overlay = std::make_unique<juce::ToggleButton>();
             note(*r.name);
             add(*r.open, ("setup.out." + std::to_string(i) + ".open").c_str());
             add(*r.close, ("setup.out." + std::to_string(i) + ".close").c_str());
             add(*r.overlay, ("setup.out." + std::to_string(i) + ".overlay").c_str());
+            add(*r.restore, ("setup.out." + std::to_string(i) + ".restore").c_str());
+            r.restore->setButtonText("Select saved");
+            r.restore->onClick = [this, i] { restoreRow(i); };
             r.open->setButtonText("Open on display");
             r.close->setButtonText("Close");
             r.overlay->setButtonText("BPM and key overlay");
@@ -147,13 +154,22 @@ public:
 
         header(benchHead_, "Benchmark and privacy");
         note(benchNote_);
-        benchNote_.setText("Benchmark is not available in this build. Privacy opt-ins come later. Both are off.", juce::dontSendNotification);
+        benchNote_.setText("No benchmark result. This machine is unqualified.", juce::dontSendNotification);
+        add(benchRun_, "setup.benchmark.run"); benchRun_.setButtonText("Run quick benchmark");
+        add(benchFull_, "setup.benchmark.full"); benchFull_.setButtonText("Three repetitions");
+        add(benchCancel_, "setup.benchmark.cancel"); benchCancel_.setButtonText("Cancel benchmark");
+        add(benchLock_, "setup.benchmark.lock"); benchLock_.setButtonText("Lock quality");
+        benchRun_.onClick = [this] { AppCommand c; c.kind = AppCommandKind::RunBenchmark; model_.postCommand(c); };
+        benchFull_.onClick = [this] { AppCommand c; c.kind = AppCommandKind::RunBenchmark; c.a = 1; model_.postCommand(c); };
+        benchCancel_.onClick = [this] { AppCommand c; c.kind = AppCommandKind::CancelBenchmark; model_.postCommand(c); };
+        benchLock_.onClick = [this] { savePref("benchmark.locked", benchLock_.getToggleState() ? "1" : "0"); };
 
         add(notice_, "setup.notice");
         notice_.setFont(juce::FontOptions(theme::kBodyFont));
         notice_.setColour(juce::Label::textColourId, theme::stateWarn());
     }
 
+    std::map<OutputId, std::string> savedDisplays_;
     std::function<void()> onWizard;
     juce::Component* control(const juce::String& id) { return uikit::findById(this, id); }
     juce::String notice() const { return notice_.getText(); }
@@ -173,6 +189,12 @@ public:
         for (const auto& kv : s.prefs) {
             if (kv.first == "ui.theme") { setup::appearance().theme = kv.second == "contrast" ? setup::ThemeChoice::HighContrast : setup::ThemeChoice::Night; theme_.setSelectedId(kv.second == "contrast" ? 2 : 1, juce::sendNotification); }
             else if (kv.first == "ui.clean") { setup::appearance().cleanMode = kv.second == "1"; clean_.setToggleState(kv.second == "1", juce::dontSendNotification); }
+            else if (kv.first.rfind("display.output.", 0) == 0) {
+                OutputId id = 0;
+                const auto text = kv.first.substr(15);
+                const auto parsed = std::from_chars(text.data(), text.data() + text.size(), id);
+                if (parsed.ec == std::errc() && parsed.ptr == text.data() + text.size()) savedDisplays_[id] = kv.second;
+            }
             else if (kv.first == "ui.reduce") { setup::appearance().reduceMotion = kv.second == "1"; reduce_.setToggleState(kv.second == "1", juce::dontSendNotification); }
         }
         restoring_ = false;
@@ -180,6 +202,7 @@ public:
 
     void apply(const UiSnapshot& s) {
         restorePrefs(s);
+        if (outputs_.safetyNotice().isNotEmpty()) setNotice(outputs_.safetyNotice());
         if (s.showFile.freeBytesValid) {
             const double gb = double(s.showFile.freeBytes) / (1024.0 * 1024.0 * 1024.0);
             filesNote_.setText(juce::String(gb, 1) + " GB free where shows and recordings are saved." +
@@ -192,6 +215,14 @@ public:
         strobeNote_.setText(s.show.strobingDisabled ? "Strobing is locked off." : "Strobing is allowed. Flash scenes can run.",
                             juce::dontSendNotification);
         syncOutputs(s);
+        benchRun_.setEnabled(!s.benchmark.running); benchFull_.setEnabled(!s.benchmark.running);
+        benchCancel_.setEnabled(s.benchmark.running);
+        juce::String benchmarkNote(s.benchmark.note);
+        for (const auto& pref : s.prefs) {
+            if (pref.first == "benchmark.history") benchmarkNote << "\nSaved profile hashes: " << juce::String(pref.second).replace(";", " | ");
+            if (pref.first == "benchmark.locked") benchLock_.setToggleState(pref.second == "1", juce::dontSendNotification);
+        }
+        benchNote_.setText(benchmarkNote, juce::dontSendNotification);
         displayNote_.setText(displayList_.size() < 2 ? "Only one display found. Audience output needs a second display." : juce::String(
                              std::to_string(displayList_.size()) + " displays found. Pick one, then open an audience output on it."),
                              juce::dontSendNotification);
@@ -218,7 +249,7 @@ public:
         row(kRowH, {{&displayBox_, 0}, {&refreshDisplays_, 140}, {&identify_, 160}});
         for (auto& r : rows_) {
             if (!r.name->isVisible()) continue;
-            uikit::placeRow(juce::Rectangle<int>(8, y, width - 16, kRowH), {{r.name.get(), 0}, {r.overlay.get(), 180}, {r.open.get(), 150}, {r.close.get(), 90}});
+            uikit::placeRow(juce::Rectangle<int>(8, y, width - 16, kRowH), {{r.name.get(), 0}, {r.overlay.get(), 180}, {r.restore.get(), 110}, {r.open.get(), 140}, {r.close.get(), 70}});
             y += kRowH + kGap;
         }
         y += 6;
@@ -233,7 +264,8 @@ public:
         full(filesNote_, 22);
         y += 6;
         head(benchHead_);
-        full(benchNote_, 22);
+        row(kRowH, {{&benchRun_, 180}, {&benchFull_, 160}, {&benchCancel_, 160}, {&benchLock_, 130}});
+        full(benchNote_, 90);
         full(notice_, 24);
         height_ = y + 12;
         setSize(width, height_);
@@ -245,7 +277,7 @@ private:
     struct OutputRow {
         OutputId id = 0;
         std::unique_ptr<juce::Label> name;
-        std::unique_ptr<juce::TextButton> open, close;
+        std::unique_ptr<juce::TextButton> open, close, restore;
         std::unique_ptr<juce::ToggleButton> overlay;
     };
 
@@ -270,23 +302,42 @@ private:
 
     void syncOutputs(const UiSnapshot& s) {
         int shown = 0;
-        for (auto& r : rows_) { r.name->setVisible(false); r.open->setVisible(false); r.close->setVisible(false); r.overlay->setVisible(false); }
+        for (auto& r : rows_) { r.name->setVisible(false); r.open->setVisible(false); r.close->setVisible(false); r.restore->setVisible(false); r.overlay->setVisible(false); }
         for (const auto& o : s.outputs) {
             if (shown >= kMaxOutputRows) break;
             auto& r = rows_[static_cast<std::size_t>(shown++)];
             r.id = o.id;
             const bool audience = o.kind == RouteKind::Audience;
             juce::String label = o.label.empty() ? juce::String("Output " + std::to_string(o.id)) : juce::String(o.label);
+            if (audience && !outputs_.isOpen(o.id) && savedDisplays_.count(o.id)) label += " (saved display; confirm before opening)";
             r.name->setText(label + (audience ? " (audience)" : " (controls)") + ", " + juce::String(o.width) + "x" + juce::String(o.height),
                             juce::dontSendNotification);
             r.name->setVisible(true);
             r.open->setVisible(audience);
             r.close->setVisible(audience);
+            r.restore->setVisible(audience);
+            r.restore->setEnabled(!outputs_.isOpen(o.id) && savedDisplays_.count(o.id));
             r.open->setEnabled(!outputs_.isOpen(o.id));
             r.close->setEnabled(outputs_.isOpen(o.id));
             r.overlay->setVisible(true);
             r.overlay->setToggleState(false, juce::dontSendNotification);
         }
+    }
+
+    void restoreRow(int i) {
+        const auto id = rows_[static_cast<std::size_t>(i)].id;
+        const auto saved = savedDisplays_.find(id);
+        if (saved == savedDisplays_.end()) return;
+        refreshDisplayList();
+        int match = -1;
+        for (int index = 0; index < displayList_.size(); ++index) {
+            if (audience::displaySelectionToken(displayList_.getReference(index)) != saved->second) continue;
+            if (match >= 0) { setNotice("Saved display is ambiguous. Identify displays and choose explicitly."); return; }
+            match = index;
+        }
+        if (match < 0) { setNotice("Saved display is unavailable or changed. Identify displays and choose explicitly."); return; }
+        displayBox_.setSelectedId(match + 1, juce::dontSendNotification);
+        setNotice("Saved display selected. Check its number, then press Open on display to confirm audience output.");
     }
 
     void openRow(int i) {
@@ -295,7 +346,10 @@ private:
         if (idx < 0 || idx >= displayList_.size()) { setNotice("Pick a display first."); return; }
         juce::String reason;
         if (!outputs_.open(r.id, displayList_.getReference(idx), &top_, reason)) setNotice(reason);
-        else setNotice("Audience output open. Close it here to stop.");
+        else {
+            savedDisplays_[r.id] = audience::displaySelectionToken(displayList_.getReference(idx));
+            setNotice("Audience output open. Its local display choice is saved; reopening after restart always needs confirmation.");
+        }
     }
 
     void closeRow(int i) {
@@ -334,6 +388,8 @@ private:
         appearanceHead_, appearanceNote_, filesHead_, filesNote_, benchHead_, benchNote_, notice_;
     juce::ComboBox deviceType_, rate_, displayBox_, theme_;
     juce::TextEditor deviceName_;
+    juce::ToggleButton benchLock_;
+    juce::TextButton benchRun_, benchFull_, benchCancel_;
     juce::TextButton applyDevice_, refreshDisplays_, identify_, save_, saveAs_, open_;
     juce::ToggleButton strobe_, clean_, reduce_;
 };

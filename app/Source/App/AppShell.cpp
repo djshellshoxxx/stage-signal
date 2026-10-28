@@ -216,7 +216,7 @@ ss::Status AppController::shellCrashMarker() {
     LockInfo old;
     auto txt = fs.readFile(sh.lockPath, 4096);
     const bool parsed = txt.ok() && lockFromText(txt.value(), old);
-    const char* mode = cfg_.host == HostKind::Clap ? "clap" : "standalone";
+    const char* mode = cfg_.host == HostKind::Clap ? "clap" : (cfg_.host == HostKind::Vst3 ? "vst3" : "standalone");
     if (parsed && old.pid != ownPid() && old.mode == mode && processAlive(old.pid)) {
         // A live process owns the marker: this is not a crash. Leave its lock alone.
         sh.ownsLock = false;
@@ -233,7 +233,7 @@ void AppController::shellWriteLock() {
     if (sh.dir.empty() || !sh.ownsLock) return;
     LockInfo l;
     l.pid = ownPid(); l.startUnixMs = sh.startWallMs; l.build = "0.2.0";
-    l.mode = cfg_.host == HostKind::Clap ? "clap" : "standalone";
+    l.mode = cfg_.host == HostKind::Clap ? "clap" : (cfg_.host == HostKind::Vst3 ? "vst3" : "standalone");
     auto st = adapters_.files->writeFile(sh.lockPath, lockToText(l), true);
     if (!st.ok()) diag_.post(DiagLevel::Warn, "crashmarker", "running.lock could not be written");
 }
@@ -547,7 +547,7 @@ void AppController::shellRegisterCommands() {
 
     // ---- preferences ---------------------------------------------------------------------------------------------
     registerCommandHandler(AppCommandKind::SetPref, [this, reject](const AppCommand& c) {
-        const bool ok = c.text.rfind("ui.", 0) == 0 || c.text.rfind("display.", 0) == 0 || c.text.rfind("wizard.", 0) == 0 || c.text == "lighting.beatlook" ||
+        const bool ok = c.text.rfind("ui.", 0) == 0 || c.text.rfind("display.", 0) == 0 || c.text.rfind("wizard.", 0) == 0 || c.text.rfind("benchmark.", 0) == 0 || c.text == "lighting.beatlook" ||
                         c.text == "keymap.overrides";
         if (!ok) return reject("That setting cannot be changed here.");
         {
@@ -760,7 +760,7 @@ void AppController::shellRegisterCommands() {
     });
     registerCommandHandler(AppCommandKind::RemoveMedia, [this, reject](const AppCommand& c) {
         if (c.a < 0 || c.a > 2) return reject("Pick an image slot between 0 and 2.");
-        media_.layers().clearSlot(static_cast<std::size_t>(c.a));
+        media_.removeMedia(static_cast<std::size_t>(c.a));
         return ss::okStatus();
     });
     registerActionHandler(ss::ActionId::TextClear, [this](const ss::Action&) {
@@ -799,6 +799,30 @@ void AppController::shellRegisterCommands() {
     });
 
     // ---- reports (22, 23, 24) ------------------------------------------------------------------------------------
+    registerCommandHandler(AppCommandKind::SetMediaPlayback, [this, reject](const AppCommand& c) {
+        if (c.a < 0 || c.a >= 3) return reject("No such media slot");
+        return media_.setMediaPlayback(static_cast<std::size_t>(c.a), c.value, c.b != 0);
+    });
+    registerCommandHandler(AppCommandKind::PauseMedia, [this, reject](const AppCommand& c) {
+        if (c.a < 0 || c.a >= 3) return reject("No such media slot");
+        return media_.pauseMedia(static_cast<std::size_t>(c.a), c.b != 0);
+    });
+    registerCommandHandler(AppCommandKind::RunBenchmark, [this, reject](const AppCommand& c) {
+        if (benchmark_.start(c.a == 0)) return ss::okStatus();
+        return reject("A benchmark is already running");
+    });
+    registerCommandHandler(AppCommandKind::CancelBenchmark, [this](const AppCommand&) { benchmark_.cancel(); return ss::okStatus(); });
+    registerCommandHandler(AppCommandKind::RefreshCameras, [this](const AppCommand&) { media_.refreshCameras(); return ss::okStatus(); });
+    registerCommandHandler(AppCommandKind::OpenCamera, [this, reject](const AppCommand& c) {
+        if (cfg_.secondary) return reject("Another instance owns the camera");
+        return media_.camera().open(c.text);
+    });
+    registerCommandHandler(AppCommandKind::CloseCamera, [this](const AppCommand&) { media_.camera().close(); return ss::okStatus(); });
+    registerCommandHandler(AppCommandKind::PublishCamera, [this, reject](const AppCommand& c) {
+        if (cfg_.secondary) return reject("Another instance owns the camera");
+        return media_.camera().publish(c.a > 0 ? static_cast<OutputId>(c.a) : kPrimaryOutput);
+    });
+    registerCommandHandler(AppCommandKind::UnpublishCamera, [this](const AppCommand&) { media_.camera().unpublish(); return ss::okStatus(); });
     registerCommandHandler(AppCommandKind::RunShowDoctor, [](const AppCommand&) { return ss::okStatus(); });   // the check runs in the UI from the snapshot
     registerCommandHandler(AppCommandKind::ExportShowReport, [this, reject](const AppCommand& c) {
         if (c.text.empty()) return reject("Choose a folder first.");
@@ -908,6 +932,23 @@ void AppController::shellPushMediaConfig() {
 void AppController::shellIoTick(ss::Ns now) {
     auto& sh = *shell_;
     if (!sh.ready.load()) return;
+    const auto benchmark = benchmark_.view();
+    if (!benchmark.running && benchmark.generation > sh.benchmarkSavedGeneration) {
+        sh.benchmarkSavedGeneration = benchmark.generation;
+        const auto report = benchmark_.report();
+        if (!report.empty() && !sh.dir.empty() && !cfg_.secondary) {
+            auto status = ss::persist::atomicWriteFile(*adapters_.files, ss::persist::joinPath(sh.dir, "benchmark.json"), report);
+            if (status.ok()) {
+                { std::lock_guard<std::mutex> lock(sh.m);
+                  sh.prefs.set("benchmark.hash", benchmark.profileHash);
+                  sh.prefs.set("benchmark.qualified", "0");
+                  auto history = std::to_string(wallMs(clock())) + ":" + benchmark.profileHash.substr(0, 12) + ";" + sh.prefs.get("benchmark.history");
+                  if (history.size() > 400) history.resize(400);
+                  sh.prefs.set("benchmark.history", history); }
+                shellSavePrefs();
+            } else diag_.post(DiagLevel::Warn, "benchmark", "Benchmark measurements could not be saved");
+        }
+    }
     // --- dirty detection (once per second, only when the show revision moved) and 30 s autosave
     if (now >= sh.nextDirtyCheck) {
         sh.nextDirtyCheck = now + ss::kNsPerSec;
@@ -987,6 +1028,7 @@ void AppController::shellIoTick(ss::Ns now) {
 // ============================================================================================================
 void AppController::shellFillUi(UiSnapshot& s, ss::Ns now) {
     auto& sh = *shell_;
+    s.benchmark = benchmark_.view();
     s.secondary = cfg_.secondary;
     s.recovery = recovery_.load();
     {
@@ -1071,6 +1113,7 @@ void AppController::shellMusicTick(const ss::show::ShowSnapshot& snap, const ss:
 
 void AppController::controlAdapt(ss::Ns now) {
     auto& sh = *shell_;
+    { std::lock_guard<std::mutex> lock(sh.m); sh.adapt.setLocked(sh.prefs.get("benchmark.locked") == "1"); }
     // Staged plugin state: swapped here, on the CONTROL thread, at a tick boundary.
     std::shared_ptr<StateBlobContent> staged;
     { std::lock_guard<std::mutex> g(sh.m); staged.swap(sh.staged); }

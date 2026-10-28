@@ -22,6 +22,14 @@ ss::Status MediaLayers::setImage(std::size_t slot, const std::string& path, ss::
     return ss::okStatus();
 }
 
+ss::Status MediaLayers::setDecodedFrame(std::size_t slot, std::shared_ptr<const PixelBuffer> frame) {
+    if (slot + 1 >= kMax || !frame || frame->empty() || frame->rgba.size() > (64u << 20))
+        return ss::makeError(ss::ErrorCategory::InvalidArgument, "Invalid decoded media frame");
+    std::lock_guard<std::mutex> lock(ctlMutex_);
+    auto next = copyCur(); next->layers[slot].px = std::move(frame); publish(next);
+    return ss::okStatus();
+}
+
 ss::Status MediaLayers::setText(const std::string& utf8, std::uint32_t outW, std::uint32_t outH) {
     if (utf8.empty()) { clearSlot(kMax - 1); return ss::okStatus(); }
     auto px = rasterText(utf8, outW, std::max<std::uint32_t>(32, outH / 5));

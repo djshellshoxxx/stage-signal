@@ -12,6 +12,7 @@
 #include "App/MidiScheduler.h"
 #include "Engine/DesktopAdapters.h"
 #include "Engine/Desktop/DesktopSystem.h"
+#include "Engine/Desktop/NativeDisplayIdentity.h"
 #include "Engine/Desktop/JuceAudioSource.h"
 #include "Engine/Desktop/JuceMidiProvider.h"
 #include "Engine/Desktop/TimestampMapperLinear.h"
@@ -319,6 +320,23 @@ SelfTestResult displays() {
     return {true, std::to_string(t.size()) + " display(s), identity limitation reported"};
 }
 
+SelfTestResult displayIdentityTuple() {
+    const auto identity = macDisplayIdentity(4660, 22136, 39612);
+    REQUIRE_T(identity == "macos:9934c33a2262ce6c5101f4d68bee8c76ec64856e38adb5e770a1df78f2b13f6b", "canonical identity hash changed");
+    REQUIRE_T(macDisplayIdentity(4660, 22136, 39612) == identity, "identity must be deterministic");
+    REQUIRE_T(macDisplayIdentity(4660, 22136, 39613) != identity, "serial must distinguish otherwise equal displays");
+    REQUIRE_T(identity.find("39612") == std::string::npos, "raw serial leaked into identity");
+    REQUIRE_T(macDisplayIdentity(0, 22136, 39612).empty(), "missing vendor must fail closed");
+    REQUIRE_T(macDisplayIdentity(4660, 0, 39612).empty(), "missing model must fail closed");
+    REQUIRE_T(macDisplayIdentity(4660, 22136, 0).empty(), "missing serial must fail closed");
+    REQUIRE_T(macDisplayIdentity(0x756e6b6eU, 22136, 39612).empty(), "unknown vendor must fail closed");
+    REQUIRE_T(macDisplayIdentity(4660, 0x00000717U, 39612).empty(), "generic model must fail closed");
+    REQUIRE_T(macDisplayIdentity(0xffffffffU, 22136, 39612).empty(), "no-monitor sentinel must fail closed");
+    REQUIRE_T(macDisplayIdentity(4660, 0xffffffffU, 39612).empty(), "no-monitor model sentinel must fail closed");
+    REQUIRE_T(macDisplayIdentity(4660, 22136, 0xffffffffU).empty(), "no-monitor serial sentinel must fail closed");
+    return {true, "serial-backed identity is stable, opaque, and rejects incomplete tuples"};
+}
+
 SelfTestResult lightingGate() {
     // LightingScheduler + real UdpPacketSink on loopback: no packet while disarmed, packets once armed, none after disarm.
     ss::SystemClock clock;
@@ -380,6 +398,7 @@ void registerAdaptersDesktopSelfTests(SelfTestRegistry& r) {
     r.add("adapters-log-ring", logRing);
     r.add("adapters-perf", perf);
     r.add("adapters-displays", displays);
+    r.add("adapters-display-identity", displayIdentityTuple);
     r.add("adapters-lighting-gate", lightingGate);
     r.add("adapters-factory", factorySet);
 }
