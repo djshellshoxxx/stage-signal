@@ -7,6 +7,7 @@
 #include "ss/base/time.hpp"
 #include "ss/base/types.hpp"
 #include "ss/model/show_model.hpp"
+#include "ss/show/audio_health.hpp"
 
 namespace ss::show {
 
@@ -50,6 +51,9 @@ struct Tunables {
     float strobeLockedBloomMax = 0.0f;        // Bloom Pulse is the only flash-capable effect; capped while locked
     // --- programmed mode
     bool loopCues = false;
+    // --- audio loss (REQ-D09)
+    AudioLossPolicy audioLossPolicy = AudioLossPolicy::Continue;   // Idle = audience shows the idle screen on loss
+    AudioHealthConfig audioHealth;                                  // detect (<= 2 s) and restore-hold times
     // --- undo
     Ns coalesceNs = 750 * kNsPerMs;           // continuous-control edits within this window share one undo step
 };
@@ -59,7 +63,8 @@ enum class EventKind : std::uint8_t {
     DropScheduled, Drop, DropSkipped,
     ModeChanged, OverrideChanged, Paused, Resumed,
     BlackoutChanged, StrobeLockChanged, TempoOverrideChanged, KeyOverrideChanged,
-    SnapshotStored, SnapshotRecalled, UndoApplied, RedoApplied, EditApplied, ActionRejected
+    SnapshotStored, SnapshotRecalled, UndoApplied, RedoApplied, EditApplied, ActionRejected,
+    AudioLost, AudioRestored
 };
 const char* eventKindName(EventKind k);
 
@@ -129,6 +134,8 @@ struct ShowSnapshot {
     // energy arc state
     model::EnergyTier wantedTier = model::EnergyTier::Any;
     bool dropPending = false;
+    // audio health (REQ-D09): `audioLost` = loss confirmed; `audioIdle` = policy says the audience shows the idle screen
+    bool audioLost = false, audioIdle = false;
     // events emitted since the previous snapshot
     std::vector<ShowEvent> events;
     std::uint32_t eventsDropped = 0;

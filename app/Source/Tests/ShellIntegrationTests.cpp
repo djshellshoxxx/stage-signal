@@ -278,6 +278,29 @@ SelfTestResult midiFeedsActions() {
     return got ? pass("note on became NextScene through the inbox") : fail("MIDI note produced no action; sink " + std::string(midi->sink ? "open" : "null") + ", inputs " + std::to_string(c.midi().driver().inputPorts()) + ", rx " + std::to_string(c.midi().driver().engine().totals().rx));
 }
 
+SelfTestResult audioLossIdle() {
+    // No audio source delivers blocks: the controller must report the loss and, with the Idle policy, idle the output.
+    TempDir td;
+    Catcher cat;
+    AdapterSet a = makeFakeAdapterSet(false);
+    AppController c(a, headlessCfg(td.path()));
+    c.setPreference("audio.losspolicy", "idle");
+    c.ui().addListener(&cat);
+    c.start();
+    const bool idle = waitFor([&] { c.ui().poll(); auto sn = c.ui().snapshot(); return sn && sn->show.audioIdle && sn->show.audioLost; }, 8000);
+    c.setPreference("audio.losspolicy", "continue");
+    const bool cleared = waitFor([&] { c.ui().poll(); auto sn = c.ui().snapshot(); return sn && sn->show.audioLost && !sn->show.audioIdle; }, 3000);
+    c.ui().removeListener(&cat);
+    c.stop();
+    if (!idle) {
+        auto sn = c.ui().snapshot();
+        return fail(std::string("loss was not confirmed into the idle state within 8 s; lost=") + (sn && sn->show.audioLost ? "1" : "0") +
+                    " idle=" + (sn && sn->show.audioIdle ? "1" : "0") + " pref=" + c.pref("audio.losspolicy", "?"));
+    }
+    if (!cleared) return fail("switching the policy to continue did not clear the idle state");
+    return pass("no audio -> lost + idle (idle policy), continue policy reports without idling");
+}
+
 SelfTestResult lightingDrivenWhenArmed() {
     AdapterSet a = makeFakeAdapterSet(false);
     auto packets = std::dynamic_pointer_cast<RecordingPacketSink>(a.packets);
@@ -436,6 +459,7 @@ void registerShellIntegrationTests(SelfTestRegistry& r) {
     r.add("shell: secondary mode", secondaryMode);
     r.add("shell: shutdown stuck writer", shutdownStuckWriter);
     r.add("shell: midi feeds actions", midiFeedsActions);
+    r.add("shell: audio loss idle", audioLossIdle);
     r.add("shell: lighting driven when armed", lightingDrivenWhenArmed);
     r.add("shell: media wiring", mediaWiring);
     r.add("shell: phrase wiring", phraseWiring);
