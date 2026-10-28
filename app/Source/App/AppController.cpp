@@ -119,6 +119,7 @@ AppController::AppController(AdapterSet adapters, AppConfig cfg)
     registerCommandHandler(AppCommandKind::DisarmLighting, [this](const AppCommand&) { lighting_.disarm(); return ss::okStatus(); });
     registerCommandHandler(AppCommandKind::EnableMidiOutput, [this](const AppCommand&) { midi_.enableOutput(); return ss::okStatus(); });
     registerCommandHandler(AppCommandKind::DisableMidiOutput, [this](const AppCommand&) { midi_.disableOutput(); return ss::okStatus(); });
+    media_.setTextSink([this](std::shared_ptr<const TextRequest> r) { render_.publishText(std::move(r)); });
     shellInstallWiring();
 }
 
@@ -141,6 +142,7 @@ ss::Status AppController::loadShow(const ss::model::ShowDocument& doc) {
     for (const auto& o : doc.outputs) specs.push_back({o.id, static_cast<std::uint32_t>(o.width), static_cast<std::uint32_t>(o.height), 0});
     render_.setOutputs(std::move(specs));
     shellConfigureEngines(doc);
+    shellPushAudiencePolicies();
     return ss::okStatus();
 }
 

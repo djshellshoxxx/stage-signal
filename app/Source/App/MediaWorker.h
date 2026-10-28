@@ -26,6 +26,14 @@
 
 namespace ss::app {
 
+// Published-text options (REQ-S06). Outside the class so it can be a default argument.
+struct TextOptions {
+    double durationSec = 0.0;      // 0 = hold until cleared, else 0.1..3600
+    double fadeSec = 0.5;          // clamped by the compositor to duration / 2
+    bool scroll = false;           // one bounded right-to-left pass
+    float x = 0.5f, y = 0.89f, size = 0.2f;     // normalised centre and bitmap height / canvas height (bottom banner)
+};
+
 class MediaWorker final : public IProcessedAudioConsumer, public IRenderLayerSource {
 public:
     using FrameProvider = std::function<std::shared_ptr<const SharedFrame>(ss::OutputId)>;
@@ -46,7 +54,13 @@ public:
 
     // Media import (any non-RT thread). Stills only; GIF shows its first frame. Slot 0..2.
     ss::Status importImage(std::size_t slot, const std::string& path, std::string* note = nullptr);
-    ss::Status setTextBanner(const std::string& utf8, std::uint32_t outW = 1280, std::uint32_t outH = 720);
+    // Published text (REQ-S05/S06). Rasterises on the calling thread and hands one TextRequest to the render thread
+    // through the sink; nothing reaches an output until this is called, and only `target` outputs change.
+    using TextSink = std::function<void(std::shared_ptr<const TextRequest>)>;
+    void setTextSink(TextSink s) { textSink_ = std::move(s); }          // before start(); the render host's publishText
+    ss::Status setTextBanner(const std::string& utf8, const TextOptions& o = TextOptions(), ss::OutputId target = ss::kAllOutputs,
+                             std::uint32_t outW = 1280, std::uint32_t outH = 720);
+    void clearTextBanner(ss::OutputId target = ss::kAllOutputs);
     ss::Status setMediaPlayback(std::size_t slot, double speed, bool loop);
     ss::Status pauseMedia(std::size_t slot, bool paused);
     void removeMedia(std::size_t slot);
@@ -80,6 +94,9 @@ private:
     AdapterSet& adapters_;
     FrameProvider frames_;
     MediaLayers layers_;
+    TextSink textSink_;
+    std::atomic<std::uint64_t> textSeq_{0};
+    std::atomic<std::int64_t> textEndNs_{-1};      // -1 none, INT64_MAX hold until cleared, else the monotonic end time
     CameraFeed camera_;
     std::mutex clipsMutex_;
     std::array<std::unique_ptr<ClipDecoder>, 3> clips_;

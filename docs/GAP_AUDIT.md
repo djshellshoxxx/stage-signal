@@ -45,7 +45,7 @@ Test column: doctest case count that names the requirement (`REQ-x: ...`) per `t
 | A06 tap/manual BPM | **Partial** | `audio/test_tempo_key.cpp` (4), `show/test_edit.cpp` (2) cover tap/override. Criterion also needs overrides to survive save/load; `docs/specs/show.md` records that `ShowDocument` has no field for them. |
 | A07 key | **Done (synthetic)** | `audio/test_tempo_key.cpp` (7); no real-music corpus (L-03) |
 | A08 manual key | **Partial** | `test_tempo_key.cpp` (1), `show/test_edit.cpp` (1). "save/load preserves override" is not met (same missing model/persist field as A06). |
-| A09 per-output BPM/key labels | **Done** | `router/test_router.cpp` (2) |
+| A09 per-output BPM/key labels | **Partial -> Done in the app after `claude/ss-text-layer`** | Core `router/test_router.cpp` (2) was green, but at audit time the app never used it: `RenderHost` set no compositor policy and no overlay, and nothing handled `ToggleOverlayBpmKey`, so the Setup toggle did nothing. Now `AppController::shellPushAudiencePolicies` feeds the router policy per output to `RenderHost`, which draws the overlay from the effective tempo/key. Tests: app self-tests `audience: REQ-A09 ...` and `audience: ToggleOverlayBpmKey reaches the router` (both fail with the wiring removed). Runtime-only: the toggle is not saved in the show file. |
 | A10 input vs output clip meters | **Done** | `audio/test_dsp.cpp` (2), `dynamics/test_dsp.cpp` (1) |
 
 ### 3.2 REQ-D (screens and control)
@@ -72,8 +72,8 @@ Test column: doctest case count that names the requirement (`REQ-x: ...`) per `t
 | S02 programmed cues | **Done** | `show/test_programmed.cpp` (9) |
 | S03 manual override pauses | **Done** | `test_programmed.cpp` (4) |
 | S04 pause/resume | **Done** | `test_programmed.cpp` (3) |
-| S05 text draft vs publish | **Partial** | `UI/MediaTextPanel.cpp` keeps the draft in the UI; `AppController` `PublishText` -> `MediaWorker::setTextBanner`. No core `REQ-S05` test exists because the draft lives only in the UI. **Finding:** the app draws the banner as a media layer for *every* output (`MediaLayers::fillLayers` ignores its `OutputId`), so it bypasses `compose::TextLayer`, its placement/duration/fade/scroll (REQ-S06) and the per-output `showText` policy. "Only selected audience outputs" is therefore not met in the app. |
-| S06 text layout | **Done** | `compose/test_text.cpp` (8) |
+| S05 text draft vs publish | **Done in the app after `claude/ss-text-layer`** (draft still lives only in the UI) | Published text now goes through `compose::TextLayer` per output via a `TextRequest` handed to the render thread; only the selected output (`ShowSnapshot::selectedOutput`, or all) changes, and nothing changes until `PublishText`. Test: `audience: REQ-S05 ...` (fails when the target check is removed). |
+| S06 text layout | **Done** | `compose/test_text.cpp` (8) for layout; the app now uses it (placement, size, duration, fade, one scroll pass) through prefs `text.duration`, `text.fade`, `text.scroll`, `text.y`, `text.size`, and honours the per-output `showText` policy (`audience: REQ-S06 ...`). No UI controls for these yet. |
 | S07 stills/GIF/video profiles | **Partial** | `media/test_media.cpp` (17) covers validation/import rules. App decodes stills only; **GIF shows first frame, no video decode** (app-adapters status). Moving-media playback exists only on unmerged `fix/macos-display-identity`. |
 | S08 missing media placeholder | **Done** | `media/test_media.cpp` (5) |
 | S09 camera preview/format | **Partial** | `compose/test_camera.cpp` (1); the **camera adapter is `NullCameraSource`** (`Engine/AdapterSet.cpp:16`); `juce_video` not linked. |
@@ -177,7 +177,7 @@ Real devices (audio, MIDI, camera, DMX nodes/adapters), 800 MHz BASE benchmark, 
 1. G9 D09 audio-loss/idle policy (P1, core logic + test first, small).
 2. G10/G12 remainder: armed-state socket check, Windows/macOS equivalents.
 3. A06/A08 override persistence (model + persist field). G1 notices file; G4 stale contract doc.
-4. S05 core draft/publish test (REQ-S05).
+4. UI controls for text options and the BPM/key toggle state; persist the overlay toggle in the show file.
 5. G8 moving-media decode; G5 camera adapter (needs macOS/Windows to verify; CI only).
 6. G7 macOS Keychain (CI-only verification).
 7. Owner-dependent: G2, G6, G11, G13, licence (DEC-05).
