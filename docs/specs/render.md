@@ -117,6 +117,16 @@ Strength = `amount * pulse`, pulse = 64 + 0.4 * low band + 0.4 * onset (onset fo
 glow gain up to 2x. With `strobingDisabled` the pulse is clamped to 64..112 so it cannot flash. Cost about 4.5x
 ColorField at 320x240, bounded and independent of content.
 
+*Attack/release (NEW-02, 28 Oct 2026).* The pulse is slew-limited per second of `input.timeNs`: it rises at most 1024 Q8/s
+(full range in 0.25 s) and falls at most 512 Q8/s (0.5 s), state kept in `EffectScratch` (`pulseQ8_`). Reason: before this a
+solid grey frame with an onset on every frame swung mean relative luminance by 0.29 and produced 15 / 30 / 60 flashes per
+second at 30 / 60 / 120 fps, breaking acceptance 2 of NEW-02 (found by the new `NEW-02:` flash-trace tests, which fail on
+the old code). Re-seed rule: if `timeNs` does not advance (same instant twice, or scene time restarted) the pulse snaps to the
+instantaneous target, so stateless callers and goldens are unchanged. Measured by `worstFlashesPerSecond` (WCAG 2.3.1:
+opposing >= 0.10 relative-luminance changes, darker state < 0.80) on whole-frame mean luminance at 30/60/120 fps and
+sub-sampled to 10 Hz; locked frames never cross the 0.10 threshold. Limits: whole-frame mean is a proxy for the WCAG
+25 %-of-screen area rule; no photosensitivity test with people or a certified analyser was done.
+
 ## Failure behaviour
 
 No exceptions, no asserts for runtime conditions. Wrong-size or too-short output buffers are cleared or ignored,
