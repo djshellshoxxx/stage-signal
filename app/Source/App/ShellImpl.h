@@ -25,6 +25,7 @@ struct AppController::Shell {
     ss::persist::LocalSettings settings;
     PrefsStore prefs;
     bool ownsLock = false;
+    std::uint64_t benchmarkSavedGeneration = 0;
     // show file
     std::unique_ptr<ss::persist::ShowSession> session;
     std::string sessionPath;

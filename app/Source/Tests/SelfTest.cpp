@@ -15,9 +15,18 @@ std::string jsonEscape(const std::string& s) {
 }
 }  // namespace
 
+void registerReadinessSelfTests(SelfTestRegistry& r);
+void registerClipDecoderSelfTests(SelfTestRegistry& r);
+void registerBenchmarkSelfTests(SelfTestRegistry& r);
+void registerCameraSelfTests(SelfTestRegistry& r);
+
 int runSelfTests(const std::string& selector) {
     SelfTestRegistry reg;
     registerShellSelfTests(reg);
+    registerCameraSelfTests(reg);
+    registerBenchmarkSelfTests(reg);
+    registerClipDecoderSelfTests(reg);
+    registerReadinessSelfTests(reg);
     registerAdaptersDesktopSelfTests(reg);
     registerMediaRecordSelfTests(reg);
     registerUiSelfTests(reg);

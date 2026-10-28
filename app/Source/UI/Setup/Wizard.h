@@ -42,12 +42,14 @@ public:
 
 private:
     void showStep();
+    bool saveProgress(bool completed);
     void askLeave();
     void recordAndAdvance(bool wasSkipped);
 
     UiModel& model_;
     std::function<void()> onFinish_, onLeave_;
     int step_ = 0;
+    bool benchmarkRunning_ = false;
     bool audioSeen_ = false, audioSkipped_ = false, leavePrompt_ = false;
     float lastPeakDb_ = -120.f;
     std::array<unsigned char, kSteps> result_{};   // 0 open, 1 configured, 2 skipped

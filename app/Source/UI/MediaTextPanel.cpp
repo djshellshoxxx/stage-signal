@@ -2,6 +2,7 @@
 #include <initializer_list>
 #include "UI/Overlays/OverlayText.h"
 #include "UI/Theme.h"
+#include "UI/Audience/FrameImage.h"
 
 namespace ss::app {
 
@@ -17,11 +18,11 @@ MediaTextPanel::MediaTextPanel(UiModel& model) : PanelBase(model, "Media / Text"
     mediaTitle_.setText("Media", juce::dontSendNotification);
     styleLabel(mediaCount_, false);
     styleLabel(mediaNote_, false);
-    mediaNote_.setText("Still images only (PNG, JPEG, BMP; a GIF shows its first frame). Up to three.", juce::dontSendNotification);
-    import_.setTooltip("Choose a still image to show over the program.");
+    mediaNote_.setText("Up to three images, GIFs or H.264/MJPEG clips. GIF/video needs FFmpeg. Imported media can flash.", juce::dontSendNotification);
+    import_.setTooltip("Choose an image, GIF or supported video clip to show over the program.");
     import_.onClick = [this] {
         if (imported_ >= 3) { status_.setText("Three images are loaded. Remove one first.", juce::dontSendNotification); return; }
-        chooser_ = std::make_unique<juce::FileChooser>("Choose an image", juce::File(), "*.png;*.jpg;*.jpeg;*.bmp;*.gif");
+        chooser_ = std::make_unique<juce::FileChooser>("Choose media", juce::File(), "*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.mp4;*.mov;*.mkv");
         chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this](const juce::FileChooser& fc) {
             const auto f = fc.getResult();
             if (f == juce::File()) return;
@@ -43,6 +44,45 @@ MediaTextPanel::MediaTextPanel(UiModel& model) : PanelBase(model, "Media / Text"
         if (overlay::sendCommand(model_, c, &cmdCorrelation_)) --imported_;
         remove_.setEnabled(imported_ > 0);
     };
+
+    for (int i = 1; i <= 3; ++i) clipSlot_.addItem("Media " + juce::String(i), i);
+    clipSlot_.setSelectedId(1, juce::dontSendNotification);
+    clipSpeed_.setRange(.25, 4., .25); clipSpeed_.setValue(1., juce::dontSendNotification);
+    clipSpeed_.setTextValueSuffix("x"); clipSpeed_.setTooltip("Video: 0.25x to 2x. GIF: 0.25x to 4x. Applying restarts the selected clip.");
+    clipSpeed_.setTextBoxStyle(juce::Slider::TextBoxLeft, false, 55, 24);
+    styleLabel(clipStatus_, false);
+    clipApply_.onClick = [this] {
+        AppCommand c; c.kind = AppCommandKind::SetMediaPlayback; c.a = clipSlot_.getSelectedId() - 1;
+        c.b = clipLoop_.getToggleState() ? 1 : 0; c.value = clipSpeed_.getValue();
+        overlay::sendCommand(model_, c, &cmdCorrelation_);
+    };
+    clipPause_.onClick = [this] {
+        AppCommand c; c.kind = AppCommandKind::PauseMedia; c.a = clipSlot_.getSelectedId() - 1; c.b = clipPause_.getToggleState() ? 1 : 0;
+        overlay::sendCommand(model_, c, &cmdCorrelation_);
+    };
+    for (auto* c : std::initializer_list<juce::Component*>{&clipSlot_, &clipSpeed_, &clipLoop_, &clipPause_, &clipApply_, &clipStatus_}) addAndMakeVisible(c);
+    styleLabel(cameraTitle_, true); cameraTitle_.setText("Camera", juce::dontSendNotification);
+    styleLabel(cameraStatus_, false);
+    cameraDevices_.setTextWhenNothingSelected("Choose a camera");
+    auto cameraCommand = [this](AppCommandKind kind) {
+        AppCommand c; c.kind = kind; c.a = kPrimaryOutput;
+        if (kind == AppCommandKind::OpenCamera) {
+            const int index = cameraDevices_.getSelectedId() - 1;
+            if (index < 0 || index >= static_cast<int>(cameras_.size())) return;
+            c.text = cameras_[static_cast<std::size_t>(index)].id;
+        }
+        overlay::sendCommand(model_, c, &cmdCorrelation_);
+    };
+    cameraRefresh_.onClick = [cameraCommand] { cameraCommand(AppCommandKind::RefreshCameras); };
+    cameraOpen_.onClick = [cameraCommand] { cameraCommand(AppCommandKind::OpenCamera); };
+    cameraClose_.onClick = [cameraCommand] { cameraCommand(AppCommandKind::CloseCamera); };
+    cameraPublish_.onClick = [cameraCommand] { cameraCommand(AppCommandKind::PublishCamera); };
+    cameraUnpublish_.onClick = [cameraCommand] { cameraCommand(AppCommandKind::UnpublishCamera); };
+    cameraOpen_.setComponentID("camera.preview"); cameraPublish_.setComponentID("camera.publish");
+    cameraPublish_.setEnabled(false); cameraUnpublish_.setEnabled(false);
+    for (auto* c : std::initializer_list<juce::Component*>{&cameraTitle_, &cameraStatus_, &cameraDevices_, &cameraRefresh_,
+                                                         &cameraOpen_, &cameraClose_, &cameraPublish_, &cameraUnpublish_, &cameraImage_})
+        addAndMakeVisible(c);
 
     styleLabel(textTitle_, true);
     textTitle_.setText("Text", juce::dontSendNotification);
@@ -125,6 +165,22 @@ void MediaTextPanel::resized() {
     lb.removeFromLeft(8);
     remove_.setBounds(lb.removeFromLeft(100).reduced(0, 2));
 
+    auto clipRow = left.removeFromTop(26);
+    clipSlot_.setBounds(clipRow.removeFromLeft(90)); clipSpeed_.setBounds(clipRow);
+    clipRow = left.removeFromTop(26);
+    clipLoop_.setBounds(clipRow.removeFromLeft(55)); clipPause_.setBounds(clipRow.removeFromLeft(90)); clipApply_.setBounds(clipRow);
+    clipStatus_.setBounds(left.removeFromTop(30));
+    left.removeFromTop(8);
+    cameraTitle_.setBounds(left.removeFromTop(22));
+    cameraStatus_.setBounds(left.removeFromTop(24));
+    auto cameraRow = left.removeFromTop(28);
+    cameraRefresh_.setBounds(cameraRow.removeFromRight(70)); cameraDevices_.setBounds(cameraRow);
+    cameraRow = left.removeFromTop(30);
+    cameraOpen_.setBounds(cameraRow.removeFromLeft(140)); cameraClose_.setBounds(cameraRow);
+    cameraRow = left.removeFromTop(30);
+    cameraPublish_.setBounds(cameraRow.removeFromLeft(140)); cameraUnpublish_.setBounds(cameraRow);
+    cameraImage_.setBounds(left.removeFromTop(64));
+
     auto r = juce::Rectangle<int>(312, 8, getWidth() - 320, getHeight() - 16);
     textTitle_.setBounds(r.removeFromTop(22));
     auto countRow = r.removeFromTop(20);
@@ -146,6 +202,33 @@ void MediaTextPanel::resized() {
 }
 
 void MediaTextPanel::uiSnapshotChanged(const UiSnapshot& s) {
+    const int slot = juce::jlimit(0, 2, clipSlot_.getSelectedId() - 1);
+    const auto& clip = s.media.clips[static_cast<std::size_t>(slot)];
+    clipApply_.setEnabled(clip.animated); clipPause_.setEnabled(clip.animated);
+    clipPause_.setToggleState(clip.paused, juce::dontSendNotification);
+    clipStatus_.setText(clip.animated ? juce::String(clip.note) : "Select a loaded GIF/video for playback controls.", juce::dontSendNotification);
+    const auto state = static_cast<CameraState>(s.media.cameraState);
+    bool changed = cameras_.size() != s.media.cameraDevices.size();
+    if (!changed) for (std::size_t i = 0; i < cameras_.size(); ++i) changed = changed || cameras_[i].id != s.media.cameraDevices[i].id;
+    if (changed) {
+        const auto selected = cameraDevices_.getText();
+        cameras_ = s.media.cameraDevices; cameraDevices_.clear(juce::dontSendNotification);
+        for (std::size_t i = 0; i < cameras_.size(); ++i) cameraDevices_.addItem(cameras_[i].name, static_cast<int>(i + 1));
+        cameraDevices_.setText(selected, juce::dontSendNotification);
+    }
+    cameraOpen_.setEnabled(state != CameraState::Unsupported && !cameras_.empty());
+    cameraPublish_.setEnabled(state == CameraState::Previewing && s.media.cameraPreview != nullptr);
+    cameraUnpublish_.setEnabled(state == CameraState::Published || state == CameraState::Lost);
+    cameraClose_.setEnabled(state != CameraState::Off && state != CameraState::Unsupported);
+    cameraStatus_.setText(state == CameraState::Unsupported ? "Camera unsupported on this platform." :
+        state == CameraState::Published ? "Published to Output 1" : state == CameraState::Lost ? "Camera lost; no fallback selected." :
+        state == CameraState::Previewing ? "Preview only; not on audience output." : "Camera off", juce::dontSendNotification);
+    if (cameraPreview_ != s.media.cameraPreview) {
+        cameraPreview_ = s.media.cameraPreview;
+        juce::Image image;
+        if (cameraPreview_) audience::copyFrame(*cameraPreview_, image);
+        cameraImage_.setImage(image);
+    }
     mediaCount_.setText(juce::String(static_cast<int>(s.media.loadedItems)) + " items loaded.", juce::dontSendNotification);
     if (!s.media.note.empty()) mediaNote_.setText(juce::String(s.media.note), juce::dontSendNotification);
 }

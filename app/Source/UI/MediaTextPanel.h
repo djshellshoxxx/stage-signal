@@ -26,6 +26,18 @@ private:
     void setPreview(bool on);
 
     juce::Label mediaTitle_, mediaCount_, mediaNote_, textTitle_, count_, previewLabel_, publishNote_, status_;
+    juce::ComboBox clipSlot_;
+    juce::Slider clipSpeed_;
+    juce::ToggleButton clipLoop_{"Loop"}, clipPause_{"Pause clip"};
+    juce::TextButton clipApply_{"Apply playback"};
+    juce::Label clipStatus_;
+    juce::Label cameraTitle_, cameraStatus_;
+    juce::ComboBox cameraDevices_;
+    juce::TextButton cameraRefresh_{"Refresh"}, cameraOpen_{"Preview camera"}, cameraClose_{"Close camera"};
+    juce::TextButton cameraPublish_{"Publish to Output 1"}, cameraUnpublish_{"Unpublish camera"};
+    juce::ImageComponent cameraImage_;
+    std::vector<CameraDesc> cameras_;
+    std::shared_ptr<const PixelBuffer> cameraPreview_;
     juce::TextButton import_{"Import..."}, remove_{"Remove"};
     juce::TextEditor draft_;
     juce::TextButton preview_{"Preview"}, publish_{"Publish"}, clear_{"Clear published"};

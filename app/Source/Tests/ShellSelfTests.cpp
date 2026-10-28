@@ -63,7 +63,16 @@ SelfTestResult smoke() {
     // Run for 2 s with a sine flowing in through the fake audio source.
     // Wait for the facts instead of a fixed sleep (a loaded CI machine can be slow to start threads).
     if (!waitFor([&] { ss::FeatureSnapshot t; return c.latestFeatures(t) && !t.silent; }, 10000)) return fail("no FeatureSnapshot arrived");
-    if (!waitFor([&] { c.ui().poll(); auto sn = c.ui().snapshot(); return sn != nullptr && sn->audio.signalAlive && c.ui().latestFrame(1) != nullptr; }, 10000)) return fail("no UiSnapshot with live audio published");
+    if (!waitFor([&] {
+        c.ui().poll();
+        auto sn = c.ui().snapshot();
+        if (!sn || !sn->audio.signalAlive || !c.ui().latestFrame(1)) return false;
+        // The first rendered frame may arrive after an earlier UI snapshot marked the not-yet-started renderer stale.
+        // Require a current healthy snapshot; a worker that actually stays stalled still fails this deadline.
+        return std::none_of(sn->threads.begin(), sn->threads.end(), [](const ThreadView& thread) {
+            return thread.running && thread.stale;
+        });
+    }, 10000)) return fail("no current UiSnapshot with live audio, a rendered frame and healthy workers");
 
     // 1 FeatureSnapshot arrived and reflects the sine (0.5 amplitude).
     ss::FeatureSnapshot fs;
@@ -148,6 +157,18 @@ SelfTestResult smoke() {
 void registerShellIntegrationTests(SelfTestRegistry& r);
 void registerShellSelfTests(SelfTestRegistry& r) {
     r.add("smoke", smoke);
+    r.add("shell: plugin host policies", [] {
+        for (const auto kind : {HostKind::Clap, HostKind::Vst3}) {
+            const auto& mode = hostModeFor(kind);
+            if (mode.kind() != kind || mode.clearsProcessorOutput() || !mode.passesThroughMainBus()
+                || mode.ownsAudioDevice() || mode.opensAudienceWindowsAtStartup() || !mode.editorIsEmbedded())
+                return SelfTestResult{false, "plugin must pass audio unchanged and leave device ownership with the host"};
+        }
+        const auto& standalone = hostModeFor(HostKind::Standalone);
+        if (!standalone.clearsProcessorOutput() || !standalone.ownsAudioDevice())
+            return SelfTestResult{false, "standalone must keep monitoring silent and own its audio device"};
+        return SelfTestResult{true, "CLAP/VST3 pass-through and standalone monitoring policies"};
+    });
     registerShellIntegrationTests(r);
 }
 

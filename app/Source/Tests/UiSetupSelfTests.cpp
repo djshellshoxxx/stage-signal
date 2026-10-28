@@ -6,9 +6,11 @@
 #include "Engine/Fakes.h"
 #include "Tests/SelfTest.h"
 #include "UI/Audience/OutputManager.h"
+#include "UI/Audience/DisplaySafety.h"
 #include "UI/Live/Actions.h"
 #include "UI/Setup/AppearanceSettings.h"
 #include "UI/Setup/Wizard.h"
+#include "UI/Setup/WizardProgress.h"
 #include "UI/SetupPanel.h"
 
 namespace ss::app {
@@ -47,6 +49,14 @@ SelfTestResult wizardKeyboardPath() {
     if (w.step() != 7) return fail("expected step 8 of 8, got " + std::to_string(w.step() + 1));
     w.next();                                  // summary: Finish
     if (finished != 1) return fail("Finish did not run");
+    AppCommand saved;
+    setup::WizardProgress progress;
+    bool completionSaved = false;
+    while (model.popCommand(saved)) if (saved.kind == AppCommandKind::SetPref && saved.text == "wizard.progress") {
+        if (!setup::WizardProgress::decode(saved.text2, progress)) return fail("saved wizard progress malformed");
+        completionSaved = progress.completed;
+    }
+    if (!completionSaved || !progress.audioSeen) return fail("wizard completion/audio verification was not persisted");
 
     const auto sum = w.summary();
     bool lightingOff = false;
@@ -118,6 +128,10 @@ SelfTestResult displayGuard() {
     if (outputs.open(2, displays.getReference(0), &operatorStandIn, reason)) return fail("audience window opened on the operator display");
     if (reason.isEmpty()) return fail("refusal has no reason");
     if (outputs.openCount() != 0) return fail("a window was created despite the refusal");
+    if (outputs.open(2, displays.getReference(0), nullptr, reason)) return fail("unknown operator position was accepted");
+    auto disconnected = displays.getReference(0);
+    disconnected.logicalBounds = disconnected.logicalBounds.translated(10000.f, 0.f);
+    if (outputs.open(2, disconnected, &operatorStandIn, reason)) return fail("stale disconnected display was accepted");
     c.stop();
     return {};
 }
@@ -127,8 +141,49 @@ SelfTestResult displayGuard() {
 void registerUiSetupSelfTests(SelfTestRegistry& r) {
     r.add("ui-setup: wizard keyboard path", wizardKeyboardPath);
     r.add("ui-setup: wizard escape asks first", wizardEscapeAsksFirst);
+    r.add("ui-setup: wizard resumes saved progress", [] {
+        UiModel model;
+        auto snapshot = std::make_shared<UiSnapshot>();
+        setup::WizardProgress saved; saved.step = 4; saved.audioSkipped = true; saved.results[2] = 2;
+        snapshot->prefs.emplace_back("wizard.progress", saved.encode()); model.publish(snapshot);
+        setup::Wizard wizard(model, [] {}, [] {});
+        if (wizard.step() != 4) return fail("wizard did not resume at persisted step");
+        setup::WizardProgress decoded;
+        if (setup::WizardProgress::decode("999999999999999", decoded)) return fail("corrupt progress accepted");
+        return SelfTestResult{true, "saved step resumes; malformed progress rejected"};
+    });
     r.add("ui-setup: setup panel with controller", setupPanelWithController);
     r.add("ui-setup: audience display guard", displayGuard);
+    r.add("ui-setup: audience topology safety", [] {
+        juce::Displays::Display controls{}, audienceDisplay{};
+        controls.isMain = true; controls.scale = 1.;
+        controls.logicalBounds = {0.f, 0.f, 800.f, 600.f};
+        controls.physicalBounds = {0, 0, 800, 600};
+        audienceDisplay.isMain = false; audienceDisplay.scale = 1.;
+        audienceDisplay.logicalBounds = {800.f, 0.f, 800.f, 600.f};
+        audienceDisplay.physicalBounds = {800, 0, 800, 600};
+        juce::Array<juce::Displays::Display> before;
+        before.add(controls); before.add(audienceDisplay);
+        juce::String reason;
+        if (!audience::audiencePlacementAllowed(audienceDisplay, before, {10, 10, 500, 400}, reason))
+            return fail("separate audience display refused");
+        if (audience::audiencePlacementAllowed(audienceDisplay, before, {900, 10, 500, 400}, reason))
+            return fail("operator moved onto audience display without refusal");
+        if (audience::audiencePlacementAllowed(audienceDisplay, before, {}, reason))
+            return fail("missing operator accepted");
+        auto after = before; after.remove(1);
+        if (audience::sameDisplayLayout(before, after)) return fail("unplug topology considered unchanged");
+        if (audience::audiencePlacementAllowed(audienceDisplay, after, {10, 10, 500, 400}, reason))
+            return fail("disconnected audience display accepted");
+        after = before; after.getReference(1).scale = 2.;
+        if (audience::sameDisplayLayout(before, after)) return fail("DPI topology considered unchanged");
+        if (!audience::sameDisplayLayout(before, before)) return fail("stable topology changed");
+        if (!audience::audienceWindowContained(audienceDisplay, {800, 0, 800, 600}, {10, 10, 500, 400}))
+            return fail("contained fullscreen audience refused");
+        if (audience::audienceWindowContained(audienceDisplay, {750, 0, 800, 600}, {10, 10, 780, 400}))
+            return fail("partially overlapping audience window accepted because its centre remained on target");
+        return SelfTestResult{true, "separate output, operator move, unknown position, disconnect and DPI change"};
+    });
 }
 
 }  // namespace ss::app

@@ -5,9 +5,11 @@
 
 namespace {
 // Standalone reports wrapperType_Standalone. CLAP (clap-juce-extensions) reports wrapperType_Undefined, so
-// "anything else" is treated as CLAP (app-shell 7.1). Refine with clap_properties::is_clap if that ever matters.
+// VST3 has its own wrapper type; CLAP uses the same plugin-mode safety and pass-through policy.
 ss::app::HostKind hostKindFor(juce::AudioProcessor::WrapperType t) {
-    return t == juce::AudioProcessor::wrapperType_Standalone ? ss::app::HostKind::Standalone : ss::app::HostKind::Clap;
+    if (t == juce::AudioProcessor::wrapperType_Standalone) return ss::app::HostKind::Standalone;
+    if (t == juce::AudioProcessor::wrapperType_VST3) return ss::app::HostKind::Vst3;
+    return ss::app::HostKind::Clap;
 }
 }  // namespace
 

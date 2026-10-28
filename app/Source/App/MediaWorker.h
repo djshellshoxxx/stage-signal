@@ -13,6 +13,8 @@
 #include <thread>
 #include "App/AnalysisWorker.h"
 #include "App/Media/BroadcastRunner.h"
+#include "App/Media/CameraFeed.h"
+#include "Engine/Media/ClipDecoder.h"
 #include "App/Media/MediaLayers.h"
 #include "App/Media/MediaTypes.h"
 #include "App/Media/RecordRunner.h"
@@ -28,11 +30,13 @@ class MediaWorker final : public IProcessedAudioConsumer, public IRenderLayerSou
 public:
     using FrameProvider = std::function<std::shared_ptr<const SharedFrame>(ss::OutputId)>;
 
-    explicit MediaWorker(AdapterSet& adapters) : adapters_(adapters) {}
+    explicit MediaWorker(AdapterSet& adapters) : adapters_(adapters), camera_(adapters.camera) {}
     ~MediaWorker() override { stop(); }
 
     ss::Status start();       // step 12: starts the worker thread; idle, camera closed, nothing published
     void stop();              // shutdown stages 1, 2, 4(camera), 6: unpublish, stop broadcast, finalise recorder
+    void refreshCameras();
+    CameraFeed& camera() { return camera_; }
     bool unpublishCamera();   // stage 1 helper
 
     // Any thread. Settings used by the NEXT session; a running session keeps the settings it started with.
@@ -43,13 +47,16 @@ public:
     // Media import (any non-RT thread). Stills only; GIF shows its first frame. Slot 0..2.
     ss::Status importImage(std::size_t slot, const std::string& path, std::string* note = nullptr);
     ss::Status setTextBanner(const std::string& utf8, std::uint32_t outW = 1280, std::uint32_t outH = 720);
-    void clearMedia() { layers_.clearAll(); }
+    ss::Status setMediaPlayback(std::size_t slot, double speed, bool loop);
+    ss::Status pauseMedia(std::size_t slot, bool paused);
+    void removeMedia(std::size_t slot);
+    void clearMedia();
     MediaLayers& layers() { return layers_; }
 
     // IProcessedAudioConsumer (ANALYSIS thread): copies into a bounded queue only while a session needs audio.
     void onProcessedBlock(const AudioBlockView& processed, const AudioBlockView& raw) override;
     // IRenderLayerSource (RENDER thread): still and text layers.
-    void fillLayers(OutputId o, ss::Ns now, ss::compose::FrameInputs& in) override { layers_.fillLayers(o, now, in); }
+    void fillLayers(OutputId o, ss::Ns now, ss::compose::FrameInputs& in) override { layers_.fillLayers(o, now, in); camera_.fillLayers(o, now, in); }
 
     // CONTROL thread: StartRecording/StopRecording/StartBroadcast/StopBroadcast/AddMarker.
     //   StartRecording / StartBroadcast need a user source (Ui, Keyboard, Midi).
@@ -73,6 +80,12 @@ private:
     AdapterSet& adapters_;
     FrameProvider frames_;
     MediaLayers layers_;
+    CameraFeed camera_;
+    std::mutex clipsMutex_;
+    std::array<std::unique_ptr<ClipDecoder>, 3> clips_;
+    std::array<std::shared_ptr<const PixelBuffer>, 3> clipFrames_;
+    std::array<std::string, 3> clipPaths_;
+    std::array<FfmpegProbe, 3> clipFfmpeg_;
     std::atomic<std::uint64_t> tapBlocks_{0};
     std::atomic<bool> started_{false}, quit_{false}, wantAudio_{false}, recPending_{false};
     std::atomic<std::uint32_t> lastRate_{0}, lastCh_{0};

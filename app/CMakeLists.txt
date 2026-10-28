@@ -2,11 +2,11 @@ include(${SS_ROOT}/cmake/ss_deps.cmake)
 
 file(GLOB_RECURSE SS_APP_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Source/*.cpp)
 
-# Standalone app + CLAP plugin share one AudioProcessor (spec v0.2 addendum DEC-04/DEC-11).
+# Standalone app + VST3 and CLAP plugins share one AudioProcessor (spec v0.2 addendum DEC-04/DEC-11).
 juce_add_plugin(StageSignal
   COMPANY_NAME "Circuit Drift Labs"
   PRODUCT_NAME "StageSignal"
-  FORMATS Standalone
+  FORMATS Standalone VST3
   PLUGIN_MANUFACTURER_CODE Cdlb
   PLUGIN_CODE Stsg
   IS_SYNTH FALSE
@@ -16,6 +16,8 @@ juce_add_plugin(StageSignal
   COPY_PLUGIN_AFTER_BUILD FALSE
   VERSION ${PROJECT_VERSION}
   BUNDLE_ID com.circuitdriftlabs.stagesignal
+  CAMERA_PERMISSION_ENABLED TRUE
+  CAMERA_PERMISSION_TEXT "StageSignal uses a selected camera for operator preview. Audience publication requires a separate explicit action."
   ICON_BIG "" )
 
 clap_juce_extensions_plugin(TARGET StageSignal
@@ -52,11 +54,16 @@ endif()
 
 # macOS Keychain adapter (Engine/Desktop secret store) needs Security.framework.
 if(APPLE)
-  target_link_libraries(StageSignal PRIVATE "-framework Security" "-framework CoreFoundation")
+  target_link_libraries(StageSignal PRIVATE "-framework Security" "-framework CoreFoundation" "-framework CoreGraphics")
 endif()
 
 # Allocation counter for the `shell: callback no alloc` self-test: standalone executable only. It replaces global
 # operator new, which must never happen inside a plugin loaded by a host.
 if(TARGET StageSignal_Standalone)
   target_sources(StageSignal_Standalone PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Hooks/AllocHook.cpp)
+endif()
+
+# JUCE has no Linux camera backend; avoid introducing Linux video/browser dependencies.
+if(APPLE OR WIN32)
+  target_link_libraries(StageSignal PRIVATE juce::juce_video)
 endif()

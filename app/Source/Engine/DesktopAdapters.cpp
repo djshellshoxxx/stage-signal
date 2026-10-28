@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include "Engine/Desktop/DesktopSystem.h"
 #include "Engine/Desktop/JuceAudioSource.h"
+#include "Engine/Desktop/JuceCameraSource.h"
 #include "Engine/Desktop/JuceMidiProvider.h"
 #include "Engine/Desktop/TimestampMapperLinear.h"
 #include "Engine/Desktop/UdpPacketSink.h"
@@ -19,6 +20,7 @@ AdapterSet makeDesktopAdapterSet() {
     s.timestampMapper = mapper;
     // With no input device the real source reports Unavailable ("No audio device") exactly like NoAudioSource.
     s.audio = std::make_shared<JuceAudioSource>(s.clock, mapper);
+    s.camera = makeJuceCameraSource(s.clock);
     s.midi = std::make_shared<JuceMidiProvider>(s.clock);
     s.packets = std::make_shared<UdpPacketSink>();
     s.displays = std::make_shared<JuceDisplayProvider>();
