@@ -83,7 +83,7 @@ Test column: doctest case count that names the requirement (`REQ-x: ...`) per `t
 | S13 export/import bundle | **Partial** | `persist` (13). ZIP I/O in app (`SafeZip.cpp`, 10 hostile archives); Linux only. |
 | S14 invalid show rejected | **Done** | persist (8), security (13) |
 | S15 asset manifest | **Done (metadata only)** | `media/test_media.cpp` (6). Cannot judge whether a stated licence is true. No repo-level THIRD-PARTY notices file (see §4). |
-| S16 offline works, no login | **Partial** | No `REQ-S16` test. Offline policy covered indirectly by REQ-B06 and `security` policy tests; no test that the app starts with network disabled. |
+| S16 offline works, no login | **Partial (Linux only)** | Superseded finding: PR #18 added self-test `shell: native idle has no Internet sockets` (`app/Source/Tests/ReadinessSelfTests.cpp`): native adapters, 10 s idle, no TCP/UDP socket owned by the process. CI runs `--selftest all` on Linux (`ci.yml`, job `app-linux`), and that job was green on the merged head. Not covered: Windows/macOS, saving/rendering while network is explicitly disabled, "no login" is by absence of any login code. Proxy only: owning no socket is not the same as proving zero connection attempts. |
 
 ### 3.4 REQ-M, REQ-L
 
@@ -113,7 +113,7 @@ Test column: doctest case count that names the requirement (`REQ-x: ...`) per `t
 | X01 atomic save | **Done** | persist (32); app durable FS (Linux) |
 | X02 keyboard + focus | **Partial** | palette (36) core keymap; visible focus and non-colour labels are UI and only covered by self-tests. |
 | X03 decoder failure isolation | **Done (logic)** | media (3). Decoding is in-process stills only. |
-| X04 no public listener | **Partial** | `security/test_policy.cpp` (2) checks a policy; **real socket enumeration (port scan) is not implemented**. |
+| X04 no public listener | **Partial (Linux only)** | The same idle-socket self-test (above) checks the running process owns no TCP/UDP socket when idle; `security/test_policy.cpp` (2) checks the policy. Not covered: sockets while lighting is armed (UDP by design), other OSes, a port scan from outside. The test fails closed where `/proc/net/tcp6`/`udp6` are missing (this sandbox). |
 | X05 diagnostics timeline | **Done** | diag (8) |
 | X06 4 h soak | **Partial** | `SoakMonitor` logic (perf, 3). No soak has been run. |
 
@@ -163,9 +163,9 @@ Row-naming drift: NEW-xx and FEAT tests are not all named with their ID, so the 
 | G7 | Secrets | macOS Keychain adapter missing; Windows/Linux unverified. | Missing/Partial | Module `ss-secrets-mac` (needs macOS to test: CI only). |
 | G8 | Moving media | Video/GIF animation not decoded in the app. | Missing | Module `ss-media-decode` (ffmpeg child process route is already in the spec; no new dependency). |
 | G9 | Audio-loss/idle policy (D09) | Not implemented. | Missing | Module `ss-audio-health` (core `show` + app wiring). |
-| G10 | X04 port scan | No real socket enumeration. | Missing | Module `ss-portscan` (per-OS; Linux `/proc/net` first). |
+| G10 | X04 port scan | Idle-process check exists on Linux (PR #18); armed-state and non-Linux enumeration do not. | Partial | Extend the self-test to the armed lighting state (expect exactly the declared UDP socket) and add Windows/macOS equivalents. |
 | G11 | True-peak limiter | Meter only. | Missing | Needs a qualification corpus first; defer. |
-| G12 | S16 offline test | No test. | Missing | Self-test: start with network-using adapters disabled. |
+| G12 | S16 offline test | Covered on Linux by the PR #18 idle-socket test; see S16. | Partial | Windows/macOS equivalents. |
 | G13 | Display identity | Hash only. | Partial | Evaluate `fix/macos-display-identity` (separate PR, not merged here). |
 
 ## 5. Not provable without hardware or people
@@ -175,7 +175,7 @@ Real devices (audio, MIDI, camera, DMX nodes/adapters), 800 MHz BASE benchmark, 
 ## 6. Priority order for the build phase
 
 1. G9 D09 audio-loss/idle policy (P1, core logic + test first, small).
-2. G12 + G10: REQ-S16 offline test, REQ-X04 socket enumeration (P0 requirement X04 is only Partial).
+2. G10/G12 remainder: armed-state socket check, Windows/macOS equivalents.
 3. A06/A08 override persistence (model + persist field). G1 notices file; G4 stale contract doc.
 4. S05 core draft/publish test (REQ-S05).
 5. G8 moving-media decode; G5 camera adapter (needs macOS/Windows to verify; CI only).
