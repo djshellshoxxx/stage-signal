@@ -19,8 +19,15 @@ struct EffectScratch {
     std::vector<std::int16_t> sinTab;                // 1024-entry Q15 sine
     std::vector<std::uint16_t> bloomA, bloomB;       // BloomPulse: low-res RGB planes
     std::vector<std::uint16_t> colIdx, colFrac, rowIdx, rowFrac;   // BloomPulse: upsample tables
+    // BloomPulse attack/release state (NEW-02): the pulse strength actually applied, 0..256. Seeded from the first call and
+    // re-seeded whenever input.timeNs does not advance (same instant rendered twice, or scene time restarted).
+    int pulseQ8_ = 0;
+    Ns pulseTimeNs_ = 0;
+    bool pulseSeeded_ = false;
 };
 
+// BloomPulse follows onset/low-band with a bounded attack and release (slew per second of input.timeNs), so even an onset
+// on every frame cannot swing the picture faster than ~1.3 full cycles per second (WCAG 2.3.1, NEW-02).
 // amount 0..1 (clamped; 0 or EffectKind::None = untouched). Uses input.timeNs / features / params (segments,
 // speed) / strobingDisabled. If the scratch is not ready for the frame size, the frame is left untouched.
 void applyEffect(model::EffectKind kind, float amount, const SceneInput& in, ss::PixelBuffer& inOut, EffectScratch& scratch);

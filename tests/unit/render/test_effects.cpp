@@ -1,3 +1,6 @@
+#include <algorithm>
+#include <cmath>
+#include <vector>
 #include <chrono>
 #include "test_util.hpp"
 
@@ -235,4 +238,126 @@ TEST_CASE("benchmark (prints only): effect ms per frame at 320x240") {
     }
     std::fflush(stdout);
     CHECK(true);
+}
+
+// ---- NEW-02 acceptance 2: WCAG 2.3.1 general-flash bound, measured on a luminance trace --------------------------
+namespace {
+double relLuminance(const PixelBuffer& b) {
+    auto lin = [](double c) { c /= 255.0; return c <= 0.03928 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4); };
+    double s = 0.0;
+    for (std::size_t i = 0; i < b.rgba.size(); i += 4)
+        s += 0.2126 * lin(b.rgba[i]) + 0.7152 * lin(b.rgba[i + 1]) + 0.0722 * lin(b.rgba[i + 2]);
+    return s / double(b.rgba.size() / 4);
+}
+// WCAG general flash: a pair of opposing changes in relative luminance of >= 0.10 where the darker state is < 0.80.
+// Counts flashes (opposing pairs) in the worst 1 s window of a trace sampled at `fps`.
+int worstFlashesPerSecond(const std::vector<double>& trace, int fps) {
+    std::vector<int> changeAt;             // frame index of each qualifying change, with its sign
+    std::vector<int> sign;
+    for (std::size_t i = 1; i < trace.size(); ++i) {
+        const double d = trace[i] - trace[i - 1];
+        if (std::fabs(d) >= 0.10 && std::min(trace[i], trace[i - 1]) < 0.80) { changeAt.push_back(int(i)); sign.push_back(d > 0 ? 1 : -1); }
+    }
+    int worst = 0;
+    for (std::size_t a = 0; a < changeAt.size(); ++a) {
+        int flashes = 0, last = 0;
+        for (std::size_t b = a; b < changeAt.size() && changeAt[b] - changeAt[a] < fps; ++b)
+            if (last != 0 && sign[b] == -last) { ++flashes; last = 0; } else if (last == 0 || sign[b] == last) last = sign[b];
+        worst = std::max(worst, flashes);
+    }
+    return worst;
+}
+PixelBuffer solidFrame(std::uint32_t w, std::uint32_t h, std::uint8_t v, bool leftHalfOnly = false) {
+    PixelBuffer b(w, h);
+    for (std::uint32_t y = 0; y < h; ++y)
+        for (std::uint32_t x = 0; x < w; ++x) {
+            std::uint8_t* p = b.row(y) + x * 4;
+            const bool on = !leftHalfOnly || x < w / 2;
+            p[0] = p[1] = p[2] = on ? v : 0; p[3] = 255;
+        }
+    return b;
+}
+}  // namespace
+
+TEST_CASE("NEW-02: flash counter flags a 6 Hz black/white strobe and ignores a steady glow") {
+    std::vector<double> strobe, steady;
+    for (int i = 0; i < 60; ++i) { strobe.push_back((i / 2) % 2 ? 1.0 : 0.0); steady.push_back(0.4 + 0.01 * (i % 2)); }
+    CHECK(worstFlashesPerSecond(strobe, 30) > 3);
+    CHECK(worstFlashesPerSecond(steady, 30) == 0);
+}
+
+TEST_CASE("NEW-02: bloom pulse stays inside the general-flash bound, driven by an onset on every frame at 30, 60 and 120 fps") {
+    rt::Fixture fx;
+    EffectScratch sc;
+    sc.prepare(160, 120);
+    const PixelBuffer frames[] = {dotFrame(160, 120), solidFrame(160, 120, 255, true), solidFrame(160, 120, 120), solidFrame(160, 120, 200),
+                                  solidFrame(160, 120, 97), baseFrame()};
+    int idx = 0;
+    for (const PixelBuffer& ref : frames) {
+        ++idx;
+        for (int fps : {30, 60, 120})
+            for (bool locked : {false, true}) {
+                CAPTURE(idx); CAPTURE(fps); CAPTURE(locked);
+                sc.prepare(160, 120);                                // fresh state per trace
+                std::vector<double> trace;
+                for (int frame = 0; frame < 3 * fps; ++frame) {      // 3 s; worst-case drive alternates every frame
+                    const bool hit = frame % 2 == 0;
+                    fx.feat.band[0] = hit ? 1.f : 0.f; fx.feat.onsetStrength = hit ? 1.f : 0.f; fx.feat.onsetFired = hit;
+                    auto in = fx.in(Ns(1'000'000'000LL) + Ns(frame) * 1'000'000'000LL / fps);
+                    in.strobingDisabled = locked;
+                    PixelBuffer f = ref;
+                    applyEffect(EffectKind::BloomPulse, 1.f, in, f, sc);
+                    trace.push_back(relLuminance(f));
+                }
+                CHECK(worstFlashesPerSecond(trace, fps) <= 3);       // acceptance 2
+                std::vector<double> coarse;                          // the same trace seen at 10 Hz: a slow-camera / coarse check
+                for (std::size_t i = 0; i < trace.size(); i += std::size_t(fps / 10)) coarse.push_back(trace[i]);
+                CHECK(worstFlashesPerSecond(coarse, 10) <= 3);
+                if (locked) {                                        // Disable Strobing: no crossing of the 0.10 threshold at all
+                    CHECK(worstFlashesPerSecond(trace, fps) == 0);
+                    const auto mm = std::minmax_element(trace.begin(), trace.end());
+                    CHECK(*mm.second - *mm.first < 0.10);
+                }
+            }
+    }
+}
+
+TEST_CASE("NEW-02: bloom pulse rises with a bounded attack and falls with a bounded release") {
+    rt::Fixture fx;
+    EffectScratch sc;
+    sc.prepare(160, 120);
+    const PixelBuffer ref = solidFrame(160, 120, 255, true);
+    auto lumAt = [&](Ns t, bool hit) {
+        fx.feat.band[0] = hit ? 1.f : 0.f; fx.feat.onsetStrength = hit ? 1.f : 0.f; fx.feat.onsetFired = hit;
+        PixelBuffer f = ref;
+        applyEffect(EffectKind::BloomPulse, 1.f, fx.in(t), f, sc);
+        return relLuminance(f);
+    };
+    const double quiet = lumAt(1'000'000'000LL, false);                       // seeds at the quiet level
+    const double afterHit = lumAt(1'000'000'000LL + 33'000'000LL, true);      // one 33 ms frame after a full-strength onset
+    const double settled = lumAt(2'000'000'000LL, true);                      // 1 s later: fully risen
+    CHECK(afterHit > quiet);
+    CHECK(afterHit - quiet < 0.5 * (settled - quiet));                        // one frame covers only part of the swing
+    const double falling = lumAt(2'000'000'000LL + 33'000'000LL, false);
+    CHECK(falling < settled);
+    CHECK(falling > 0.5 * (settled + quiet));                                 // release is slower than one frame
+    CHECK(lumAt(4'000'000'000LL, false) == doctest::Approx(quiet));           // and does return to the quiet level
+}
+
+TEST_CASE("NEW-02: amount 0 is a bit-exact pass-through and output never exceeds alpha (no clipping artefacts)") {
+    rt::Fixture fx;
+    EffectScratch sc;
+    sc.prepare(160, 120);
+    for (const PixelBuffer& ref : {dotFrame(160, 120), solidFrame(160, 120, 255)}) {
+        PixelBuffer off = ref;
+        applyEffect(EffectKind::BloomPulse, 0.f, fx.in(), off, sc);
+        CHECK(off.rgba == ref.rgba);
+        fx.feat.band[0] = 1.f; fx.feat.onsetStrength = 1.f; fx.feat.onsetFired = true;
+        PixelBuffer on = ref;
+        applyEffect(EffectKind::BloomPulse, 1.f, fx.in(), on, sc);
+        for (std::size_t i = 0; i < on.rgba.size(); i += 4) {
+            REQUIRE(on.rgba[i] <= on.rgba[i + 3]);
+            REQUIRE(on.rgba[i] >= ref.rgba[i]);                  // glow only adds
+        }
+    }
 }

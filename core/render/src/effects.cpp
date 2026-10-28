@@ -30,6 +30,7 @@ void EffectScratch::prepare(std::uint32_t w, std::uint32_t h) {
     bloomA.assign(ln, 0);
     bloomB.assign(ln, 0);
     colIdx.assign(w, 0); colFrac.assign(w, 0); rowIdx.assign(h, 0); rowFrac.assign(h, 0);
+    pulseQ8_ = 0; pulseTimeNs_ = 0; pulseSeeded_ = false;
     for (std::uint32_t x = 0; x < w; ++x) {
         int pos = static_cast<int>((std::int64_t(2 * x + 1) * lw_ * 128) / w) - 128;
         if (pos < 0) pos = 0;
@@ -108,6 +109,24 @@ void blur5(const std::uint16_t* in, std::uint16_t* out, int lw, int lh, bool hor
             }
 }
 
+// Attack/release limiter on the pulse strength. Full range (256) takes 0.25 s to rise and 0.5 s to fall, so one full
+// brightness cycle needs at least 0.75 s: well under the 3 flashes per second bound however fast onsets arrive.
+constexpr std::int64_t kAttackQ8PerSec = 1024, kReleaseQ8PerSec = 512;
+int slewPulse(EffectScratch& s, int target, Ns timeNs) {
+    const Ns dt = timeNs - s.pulseTimeNs_;
+    if (!s.pulseSeeded_ || dt <= 0) {
+        s.pulseQ8_ = target; s.pulseSeeded_ = true;
+    } else {
+        const Ns capped = dt > kNsPerSec ? kNsPerSec : dt;                       // a long gap just reaches the target
+        const int up = static_cast<int>((kAttackQ8PerSec * capped) / kNsPerSec);
+        const int down = static_cast<int>((kReleaseQ8PerSec * capped) / kNsPerSec);
+        if (target > s.pulseQ8_) s.pulseQ8_ = target - s.pulseQ8_ > up ? s.pulseQ8_ + up : target;
+        else s.pulseQ8_ = s.pulseQ8_ - target > down ? s.pulseQ8_ - down : target;
+    }
+    s.pulseTimeNs_ = timeNs;
+    return s.pulseQ8_;
+}
+
 void bloomPulse(int amountQ8, const SceneInput& in, PixelBuffer& f, EffectScratch& s) {
     const int w = static_cast<int>(f.width), h = static_cast<int>(f.height);
     const int lw = static_cast<int>(s.lw_), lh = static_cast<int>(s.lh_);
@@ -144,6 +163,7 @@ void bloomPulse(int amountQ8, const SceneInput& in, PixelBuffer& f, EffectScratc
     }
     int pulse = 64 + ((low * 100) >> 8) + ((onset * 100) >> 8);
     pulse = in.strobingDisabled ? clampi(pulse, 64, 112) : clampi(pulse, 0, 256);
+    pulse = slewPulse(s, pulse, in.timeNs);
     const int gain = ((amountQ8 * pulse) >> 8) * 2;     // up to 2x: glow may exceed the source it came from
 
     // 4. bilinear upsample + premultiplied-safe additive composite (colour never exceeds alpha)

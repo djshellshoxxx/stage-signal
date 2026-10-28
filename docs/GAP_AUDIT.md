@@ -72,7 +72,7 @@ Test column: doctest case count that names the requirement (`REQ-x: ...`) per `t
 | S02 programmed cues | **Done** | `show/test_programmed.cpp` (9) |
 | S03 manual override pauses | **Done** | `test_programmed.cpp` (4) |
 | S04 pause/resume | **Done** | `test_programmed.cpp` (3) |
-| S05 text draft vs publish | **Partial** | `UI/MediaTextPanel.cpp` draft/publish flow; app `ui-other: sends reach the queue`. No `REQ-S05` doctest; core `compose` text layer has no draft concept. |
+| S05 text draft vs publish | **Partial** | `UI/MediaTextPanel.cpp` keeps the draft in the UI; `AppController` `PublishText` -> `MediaWorker::setTextBanner`. No core `REQ-S05` test exists because the draft lives only in the UI. **Finding:** the app draws the banner as a media layer for *every* output (`MediaLayers::fillLayers` ignores its `OutputId`), so it bypasses `compose::TextLayer`, its placement/duration/fade/scroll (REQ-S06) and the per-output `showText` policy. "Only selected audience outputs" is therefore not met in the app. |
 | S06 text layout | **Done** | `compose/test_text.cpp` (8) |
 | S07 stills/GIF/video profiles | **Partial** | `media/test_media.cpp` (17) covers validation/import rules. App decodes stills only; **GIF shows first frame, no video decode** (app-adapters status). Moving-media playback exists only on unmerged `fix/macos-display-identity`. |
 | S08 missing media placeholder | **Done** | `media/test_media.cpp` (5) |
@@ -140,7 +140,7 @@ Test column: doctest case count that names the requirement (`REQ-x: ...`) per `t
 | ID | Class | Evidence |
 |---|---|---|
 | NEW-01 Prism Mirror | **Done** | `render/src/effects.cpp`; 3 render doctests (names are `PrismMirror: ...`, not `NEW-01`). Nearest sampling; bilinear not done. |
-| NEW-02 Bloom Pulse | **Partial** | `BloomPulse: ...` doctest + `REQ-S12` clamp test. Acceptance 2 (never >3 flashes in any 1 s window, measured on a golden luminance trace) has **no test found** by grep of `tests/unit`. Add one. |
+| NEW-02 Bloom Pulse | **Done (proxy-measured)** after branch `claude/ss-tests-gaps` | At audit time acceptance 2 had no test. Adding one exposed a real defect (15-60 flashes/s with an onset every frame); fixed with attack/release in `core/render/src/effects.cpp`. See `docs/specs/render.md`. Whole-frame luminance proxy only. |
 | NEW-03 Undo/Redo, A/B | **Done** | `show/test_edit.cpp` (≥10 cases); app `ui-other: undo and fade` |
 | NEW-04 Energy Arc | **Done (synthetic)** | `audio/test_arc.cpp` (8), show arc cases (6) |
 | NEW-05 Show Report | **Done** | `diag/show_report.cpp`; app `ui-other: report export guards` |
