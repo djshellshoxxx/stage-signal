@@ -129,7 +129,7 @@ Test column: doctest case count that names the requirement (`REQ-x: ...`) per `t
 | R06 start failures actionable | **Done** | record (5) |
 | B01 RTMPS/SRT | **Partial** | broadcast (16). Local fake-ffmpeg only (L-07). |
 | B02 explicit start | **Done** | broadcast (9); two-step start in `BroadcastRunner` |
-| B03 secrets never leak | **Partial** | broadcast (8) + diag (10) + persist (3). **Stream key is on the ffmpeg argv** (P-10). OS secret stores: Windows/Linux unverified, **macOS Keychain not implemented** (`SecretStore.cpp:124`), no file fallback. |
+| B03 secrets never leak | **Partial** | broadcast (8) + diag (10) + persist (3). **Stream key is on the ffmpeg argv** (P-10). OS secret stores: Windows/Linux unverified, **macOS Keychain (now implemented on branch `claude/ss-keychain-mac`; CI-compiled only, never run against a real keychain) not implemented** (`SecretStore.cpp:124`), no file fallback. |
 | B04 bounded reconnect | **Done (logic)** | broadcast (15), record (3) |
 | B05 state + stop <1 s | **Done (logic)** | broadcast (7) |
 | B06 network optional | **Done** | broadcast (3) |
@@ -158,9 +158,9 @@ Row-naming drift: NEW-xx and FEAT tests are not all named with their ID, so the 
 | G2 | Packaging and CI | `beta.yml` / VST3: commit `815314a` (VST3 in release matrix) exists on an unmerged branch and conflicts with DEC-11 (VST3 is a non-goal). Not in PR #15. | Info | Owner decision. |
 | G3 | CI | Core tests run once per OS with no ccache, no path filters; app job not run on macOS/Windows per push (beta workflow only). | Partial | See user CI-speed rules; do after features. |
 | G4 | App contract | `docs/specs/app-contract.md` still labels `DesktopAdapters` and `MediaWorker` as STUB. They are real now. Stale doc. | Partial | Edit doc status. |
-| G5 | Camera | No real `ICameraSource` (needs `juce_video`, Windows/macOS only; none on Linux). | Missing | Module `ss-camera`. |
+| G5 | Camera | `JuceCameraSource` exists for Windows/macOS (added with PR #18, CI-compiled, `CameraSelfTests` use fakes); there is none on Linux (JUCE limit). Never run against a real camera. | Partial | Manual pass per OS. |
 | G6 | Serial DMX | `NullSerialDmx` only; no supported adapter (REQ-L06 names none). | Missing | Owner decision on model (Q-03); until then keep Unavailable. |
-| G7 | Secrets | macOS Keychain adapter missing; Windows/Linux unverified. | Missing/Partial | Module `ss-secrets-mac` (needs macOS to test: CI only). |
+| G7 | Secrets | macOS Keychain adapter written (`claude/ss-keychain-mac`) and compile-checked by CI; Windows/Linux/macOS stores all unverified at runtime. | Partial | Run the secrets round trip on each OS (manual). |
 | G8 | Moving media | Video/GIF animation not decoded in the app. | Missing | Module `ss-media-decode` (ffmpeg child process route is already in the spec; no new dependency). |
 | G9 | Audio-loss/idle policy (D09) | Not implemented. | Missing | Module `ss-audio-health` (core `show` + app wiring). |
 | G10 | X04 port scan | Idle-process check exists on Linux (PR #18); armed-state and non-Linux enumeration do not. | Partial | Extend the self-test to the armed lighting state (expect exactly the declared UDP socket) and add Windows/macOS equivalents. |
