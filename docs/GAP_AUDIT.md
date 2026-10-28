@@ -42,9 +42,9 @@ Test column: doctest case count that names the requirement (`REQ-x: ...`) per `t
 | A03 RMS/peak/bands | **Done** | `audio/test_dsp.cpp` (9) |
 | A04 onsets | **Done** | `audio/test_dsp.cpp` (3) |
 | A05 tempo | **Done (synthetic)** | `audio/test_tempo_key.cpp` (10); synthetic clicks only (L-03) |
-| A06 tap/manual BPM | **Done** | `audio/test_tempo_key.cpp` (4), `show/test_edit.cpp` (2) |
+| A06 tap/manual BPM | **Partial** | `audio/test_tempo_key.cpp` (4), `show/test_edit.cpp` (2) cover tap/override. Criterion also needs overrides to survive save/load; `docs/specs/show.md` records that `ShowDocument` has no field for them. |
 | A07 key | **Done (synthetic)** | `audio/test_tempo_key.cpp` (7); no real-music corpus (L-03) |
-| A08 manual key | **Done** | `test_tempo_key.cpp` (1), `show/test_edit.cpp` (1) |
+| A08 manual key | **Partial** | `test_tempo_key.cpp` (1), `show/test_edit.cpp` (1). "save/load preserves override" is not met (same missing model/persist field as A06). |
 | A09 per-output BPM/key labels | **Done** | `router/test_router.cpp` (2) |
 | A10 input vs output clip meters | **Done** | `audio/test_dsp.cpp` (2), `dynamics/test_dsp.cpp` (1) |
 
@@ -60,7 +60,7 @@ Test column: doctest case count that names the requirement (`REQ-x: ...`) per `t
 | D06 lost output never covers controls | **Done (logic)** | `router/test_router.cpp` (10); real hot-unplug not tested |
 | D07 resolution/rotation | **Done** | compose (2), render (2), router (1) |
 | D08 blackout | **Done** | `show/test_safety.cpp` (5), compose (2), router (1) |
-| D09 idle screen / audio-loss policy within 2 s | **Missing** | `docs/specs/show.md` states "Not done: D09 idle-screen / audio-loss policy"; no audio-health input in `FeatureSnapshot`; no model field; no test. |
+| D09 idle screen / audio-loss policy within 2 s | **Missing at audit time; addressed in PR #17** (`claude/ss-audio-health`, draft; becomes Partial: pref-only control, built-in idle frame) | `docs/specs/show.md` stated "Not done"; no audio-health input, no test. |
 | D10 keyboard wizard at 800x600 | **Partial** | App self-test `ui-setup: wizard keyboard path`; not run on real screens; no core test. |
 | D11 keyboard/MIDI value actions | **Done** | midi (1), palette (4), show (2) |
 
@@ -176,7 +176,7 @@ Real devices (audio, MIDI, camera, DMX nodes/adapters), 800 MHz BASE benchmark, 
 
 1. G9 D09 audio-loss/idle policy (P1, core logic + test first, small).
 2. G12 + G10: REQ-S16 offline test, REQ-X04 socket enumeration (P0 requirement X04 is only Partial).
-3. G1 notices file; G4 stale contract doc.
+3. A06/A08 override persistence (model + persist field). G1 notices file; G4 stale contract doc.
 4. S05 core draft/publish test (REQ-S05).
 5. G8 moving-media decode; G5 camera adapter (needs macOS/Windows to verify; CI only).
 6. G7 macOS Keychain (CI-only verification).
