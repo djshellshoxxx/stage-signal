@@ -11,7 +11,7 @@ Facts below were read from the pinned source trees on 28 Oct 2026. Anything not 
 | clap-juce-extensions | commit `7adee3a1bd4684d4caa5601100e364abccff4b4d` | `cmake/ss_deps.cmake` | MIT (Paul Walker, 2019-2020; `LICENSE.md`) | CLAP build |
 | CLAP SDK (submodule of clap-juce-extensions) | `clap-libs/clap` at `29ffcc273be7c7c651f6c9953b99e69700e2387a` (1.2.7) | submodule of the pin above | MIT (Alexandre Bique; `LICENSE`) | CLAP build |
 | clap-helpers (submodule) | `clap-libs/clap-helpers` at `a61bcdf0ecc2c8db1e80bfe8bf9cb7e8d9fd2bbc` | submodule of the pin above | MIT (Alexandre Bique; `LICENSE`) | CLAP build |
-| nlohmann/json | single header in `third_party/nlohmann/json.hpp`, header banner says 3.11.3 | vendored copy | MIT (Niels Lohmann, 2013-2022; `third_party/nlohmann/LICENSE.MIT`) | core (`persist`, `diag`) |
+| nlohmann/json | single header in `third_party/nlohmann/json.hpp`, header banner says 3.11.3 | vendored copy | MIT (Niels Lohmann, 2013-2022; `third_party/nlohmann/LICENSE.MIT`) | core (`persist`, `broadcast`, `media`, `perf`, `record`) and app |
 | doctest | 2.4.11, `third_party/doctest/doctest.h` | vendored copy | MIT (Viktor Kirilov, 2016-2023; `third_party/doctest/LICENSE.txt`) | tests only, never shipped |
 
 JUCE itself contains further third-party code (zlib, libjpeg, OpenGL loader notices, others). `scripts/collect_release_notices.py` copies those notices into the bundle; consult the bundle rather than this table for them.
