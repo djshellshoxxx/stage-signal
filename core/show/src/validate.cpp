@@ -28,6 +28,8 @@ const char* eventKindName(EventKind k) {
         case EventKind::SnapshotRecalled: return "SnapshotRecalled";
         case EventKind::UndoApplied: return "UndoApplied";
         case EventKind::RedoApplied: return "RedoApplied";
+        case EventKind::AudioLost: return "AudioLost";
+        case EventKind::AudioRestored: return "AudioRestored";
         case EventKind::EditApplied: return "EditApplied";
         case EventKind::ActionRejected: return "ActionRejected";
     }

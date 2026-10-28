@@ -89,7 +89,8 @@ std::size_t RenderHost::renderFrame() {
         const ss::show::OutputState* st = (snap && table) ? snap->output(o.spec.id) : nullptr;
         const bool blackout = (snap && (snap->visualBlackout || snap->emergencyBlackout)) || latch_.anyVisual();
         o.comp.setVisualBlackout(blackout);
-        in.idle = (st == nullptr || !st->hasScene);
+        const bool audioIdle = snap && snap->audioIdle;        // REQ-D09: confirmed audio loss with the Idle policy
+        in.idle = audioIdle || (st == nullptr || !st->hasScene);
         if (!in.idle) {
             const std::uint32_t prevA = o.idA;
             ensureScene(o, o.sceneA, o.idA, st->sceneId, *table, o.frameA);
@@ -124,7 +125,7 @@ std::size_t RenderHost::renderFrame() {
                 in.scene = {a, nullptr, st->transition, 0.f};
             }
         }
-        if (layers_) layers_->fillLayers(o.spec.id, now, in);
+        if (layers_ && !audioIdle) layers_->fillLayers(o.spec.id, now, in);
         ss::compose::ComposedFrame f = o.comp.compose(in);
         if (!f.ok()) { dropped_.fetch_add(1, std::memory_order_relaxed); continue; }
         if (auto sf = o.exchange.acquireForWrite()) {

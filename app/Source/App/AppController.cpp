@@ -332,6 +332,7 @@ void AppController::showTick(ss::Ns now) {
     if (!analysis_.signalAlive(now) || !analysis_.features(f)) f = ss::FeatureSnapshot{};   // silent, never stale
     // Every onset since the last tick counts, even when the mailbox's edge latch was overwritten in between.
     if (analysis_.onsetsSince(onsetCursor_) > 0) f.onsetFired = true;
+    show_.setAudioAvailable(analysis_.signalAlive(now));   // REQ-D09: the engine debounces; no blocks for 500 ms = unavailable
     auto snap = std::make_shared<ss::show::ShowSnapshot>(show_.tick(now, f));
     if (recoveryPausePending_.load()) {                  // Recovery holds the show: repeat until the snapshot says paused
         if (snap->paused || !recovery_.load()) recoveryPausePending_.store(false);

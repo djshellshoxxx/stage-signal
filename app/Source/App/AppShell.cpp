@@ -105,6 +105,7 @@ std::string AppController::pref(const std::string& key, const std::string& fallb
 
 void AppController::setPreference(const std::string& key, const std::string& value) {
     { std::lock_guard<std::mutex> g(shell_->m); if (!shell_->prefs.set(key, value).ok()) return; }
+    if (key == "audio.losspolicy") show_.setAudioLossPolicy(value == "idle" ? ss::show::AudioLossPolicy::Idle : ss::show::AudioLossPolicy::Continue);
     shellSavePrefs();
 }
 
@@ -185,6 +186,7 @@ ss::Status AppController::shellLoadSettings() {
             sh.ifaceIp = h.identity;
         }
     }
+    show_.setAudioLossPolicy(sh.prefs.get("audio.losspolicy") == "idle" ? ss::show::AudioLossPolicy::Idle : ss::show::AudioLossPolicy::Continue);
     sh.endpoint.host = sh.prefs.get("broadcast.host");
     sh.endpoint.path = sh.prefs.get("broadcast.path");
     sh.endpoint.port = std::atoi(sh.prefs.get("broadcast.port", "0").c_str());

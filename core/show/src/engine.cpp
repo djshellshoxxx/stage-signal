@@ -119,6 +119,8 @@ std::string fmt2(double v) {
 struct ShowEngine::Impl {
     const IClock* clock_;
     Tunables tun_;
+    AudioHealthMonitor audioMon_;
+    bool audioAvail_ = true;                 // REQ-D09: assumed present until the app reports otherwise
     mutable std::mutex mu_;
 
     // --- document and derived tables
@@ -183,7 +185,7 @@ struct ShowEngine::Impl {
     Stats st_;
     ShowSnapshot last_;
 
-    Impl(const IClock* c, Tunables t) : clock_(c), tun_(t), grid_(t.beatsPerBar) {
+    Impl(const IClock* c, Tunables t) : clock_(c), tun_(t), audioMon_(t.audioHealth), grid_(t.beatsPerBar) {
         installDoc(model::ShowDocument{});
         mode_ = doc_.mode;
         last_ = buildSnapshot(0);
@@ -219,6 +221,7 @@ struct ShowEngine::Impl {
             case EventKind::DropScheduled: case EventKind::Drop: case EventKind::DropSkipped: jk = "drop"; break;
             case EventKind::SnapshotStored: case EventKind::SnapshotRecalled: jk = "snapshot"; break;
             case EventKind::UndoApplied: case EventKind::RedoApplied: case EventKind::EditApplied: jk = "edit"; break;
+            case EventKind::AudioLost: case EventKind::AudioRestored: jk = "device"; break;
             case EventKind::DocumentLoaded: jk = "doc"; break;
             case EventKind::ActionRejected: jk = "reject"; break;
         }
@@ -1105,6 +1108,8 @@ struct ShowEngine::Impl {
         for (int i = 0; i < Limits::kSnapshotSlots; ++i) s.slots[i] = slots_[i];
         s.undoDepth = static_cast<std::uint32_t>(undo_.size()); s.redoDepth = static_cast<std::uint32_t>(redo_.size());
         s.wantedTier = wantedTier_; s.dropPending = dropArmed_;
+        s.audioLost = audioMon_.lost();
+        s.audioIdle = audioMon_.lost() && tun_.audioLossPolicy == AudioLossPolicy::Idle;
         return s;
     }
 };
@@ -1168,6 +1173,16 @@ ActionResult ShowEngine::submitEdit(const EditCommand& e) {
     ++m.st_.accepted;
     r.accepted = true;
     return r;
+}
+
+void ShowEngine::setAudioAvailable(bool available) {
+    std::lock_guard<std::mutex> lk(impl_->mu_);
+    impl_->audioAvail_ = available;
+}
+
+void ShowEngine::setAudioLossPolicy(AudioLossPolicy p) {
+    std::lock_guard<std::mutex> lk(impl_->mu_);
+    impl_->tun_.audioLossPolicy = p;
 }
 
 void ShowEngine::markDownbeat(Ns at) {
@@ -1243,6 +1258,14 @@ ShowSnapshot ShowEngine::tick(Ns nowIn, const FeatureSnapshot& f) {
             } else {
                 ++i;
             }
+        }
+
+        // audio health (REQ-D09): debounced loss; transient state, never a document edit
+        {
+            const AudioHealthState ah = m.audioMon_.update(now, m.audioAvail_);
+            if (ah.changed)
+                m.emit(ah.lost ? EventKind::AudioLost : EventKind::AudioRestored, kAllOutputs, 0, -1, now,
+                       m.tun_.audioLossPolicy == AudioLossPolicy::Idle ? "policy=idle" : "policy=continue");
         }
 
         // automation
