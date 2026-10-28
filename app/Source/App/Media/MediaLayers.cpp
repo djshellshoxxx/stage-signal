@@ -30,18 +30,6 @@ ss::Status MediaLayers::setDecodedFrame(std::size_t slot, std::shared_ptr<const 
     return ss::okStatus();
 }
 
-ss::Status MediaLayers::setText(const std::string& utf8, std::uint32_t outW, std::uint32_t outH) {
-    if (utf8.empty()) { clearSlot(kMax - 1); return ss::okStatus(); }
-    auto px = rasterText(utf8, outW, std::max<std::uint32_t>(32, outH / 5));
-    if (!px.ok()) return px.error();
-    std::lock_guard<std::mutex> l(ctlMutex_);
-    auto s = copyCur();
-    s->layers[kMax - 1].px = std::make_shared<const ss::PixelBuffer>(std::move(px.value()));
-    s->layers[kMax - 1].region = {0.f, 0.78f, 1.f, 0.2f};
-    publish(s);
-    return ss::okStatus();
-}
-
 void MediaLayers::clearSlot(std::size_t slot) {
     if (slot >= kMax) return;
     std::lock_guard<std::mutex> l(ctlMutex_);

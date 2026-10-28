@@ -749,7 +749,34 @@ void AppController::shellRegisterCommands() {
     registerCommandHandler(AppCommandKind::PublishText, [this, reject](const AppCommand& c) {
         if (cfg_.secondary) return reject(kLightingNoteSecondary);
         if (c.text.empty()) return reject("Type the message first.");
-        return media_.setTextBanner(c.text);
+        // Options come from preferences (invalid or out-of-range values fall back to the defaults, never to a surprise).
+        auto number = [this](const char* key, double fallback, double lo, double hi) {
+            const std::string v = pref(key);
+            if (v.empty()) return fallback;
+            char* end = nullptr;
+            const double d = std::strtod(v.c_str(), &end);
+            return (end != v.c_str() && *end == 0 && d >= lo && d <= hi) ? d : fallback;
+        };
+        TextOptions o;
+        o.durationSec = number("text.duration", 0.0, 0.0, 3600.0);
+        o.fadeSec = number("text.fade", 0.5, 0.0, 60.0);
+        o.scroll = pref("text.scroll") == "1";
+        o.y = static_cast<float>(number("text.y", 0.89, 0.0, 1.0));
+        o.size = static_cast<float>(number("text.size", 0.2, 0.01, 1.0));
+        const auto snap = showSnap_.get();
+        // Only the output the operator selected changes; with none selected the message goes to every audience output.
+        return media_.setTextBanner(c.text, o, snap ? snap->selectedOutput : ss::kAllOutputs);
+    });
+    registerActionHandler(ss::ActionId::ToggleOverlayBpmKey, [this](const ss::Action& a) {
+        ss::ActionResult r;
+        if (cfg_.secondary) { r.reason = kLightingNoteSecondary; return r; }
+        shellPushAudiencePolicies();                                    // makes sure the router knows the show's outputs
+        ss::Status st = ss::okStatus();
+        { std::lock_guard<std::mutex> g(shell_->m); st = shell_->router.setBpmKeyVisible(a.target, a.value >= 0.5); }
+        if (!st.ok()) { r.reason = st.error().detail; return r; }
+        shellPushAudiencePolicies();
+        r.accepted = true;
+        return r;
     });
     registerCommandHandler(AppCommandKind::ImportMedia, [this, reject](const AppCommand& c) {
         if (cfg_.secondary) return reject(kLightingNoteSecondary);
@@ -766,7 +793,7 @@ void AppController::shellRegisterCommands() {
         return ss::okStatus();
     });
     registerActionHandler(ss::ActionId::TextClear, [this](const ss::Action&) {
-        media_.layers().clearSlot(MediaLayers::kMax - 1);               // the text banner slot
+        media_.clearTextBanner();                                       // every output
         ss::ActionResult r; r.accepted = true; return r;
     });
     registerCommandHandler(AppCommandKind::SetRecordFolder, [this, reject](const AppCommand& c) {
@@ -1146,6 +1173,21 @@ void AppController::controlAdapt(ss::Ns now) {
     std::lock_guard<std::mutex> g(sh.m);
     sh.adaptStep = st.step; sh.adaptMax = sh.adapt.maxStep();
     sh.adaptNote = st.step == 0 ? std::string() : (sh.adapt.overloadWarningActive() ? "Overloaded. Quality is reduced." : "Quality is reduced to keep up.");
+}
+
+// Router policy (text, BPM/key, branding, diagnostics) per visual output -> render host. Any thread.
+void AppController::shellPushAudiencePolicies() {
+    auto& sh = *shell_;
+    std::vector<OutputPolicyEntry> entries;
+    {
+        std::lock_guard<std::mutex> g(sh.m);
+        if (!sh.doc.outputs.empty() && sh.router.routes().size() <= 2) sh.router.setOutputs(sh.doc.outputs);   // first population only
+        for (const auto& r : sh.router.routes()) {
+            if (r.isControls || r.isMirror) continue;
+            entries.push_back({r.route.logicalId, ss::compose::policyFromRoute(r.route)});
+        }
+    }
+    render_.setPolicies(std::move(entries));
 }
 
 // Message thread, from UiModel::poll(): feeds the display router (the display provider is a UI-thread adapter).

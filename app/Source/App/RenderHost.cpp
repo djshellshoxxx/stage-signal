@@ -30,6 +30,33 @@ void RenderHost::setOutputs(std::vector<OutputSpec> specs) {
     haveStaged_ = true;
 }
 
+void RenderHost::setPolicies(std::vector<OutputPolicyEntry> entries) {
+    {
+        std::lock_guard<std::mutex> g(policyMutex_);
+        policies_ = std::move(entries);
+    }
+    policyVersion_.fetch_add(1, std::memory_order_release);
+}
+
+// RENDER thread, once per policy change (allocates here, not per frame).
+void RenderHost::applyPolicies() {
+    const std::uint64_t v = policyVersion_.load(std::memory_order_acquire);
+    if (v == appliedPolicyVersion_) return;
+    {
+        std::lock_guard<std::mutex> g(policyMutex_);
+        activePolicies_ = policies_;
+    }
+    appliedPolicyVersion_ = v;
+    std::vector<std::shared_ptr<OutputRender>> outs;
+    { std::lock_guard<std::mutex> g(mapMutex_); outs = outputs_; }
+    for (auto& o : outs) {
+        ss::compose::CompositorConfig cfg = o->comp.config();
+        cfg.policy = ss::compose::OutputPolicy{};
+        for (const auto& e : activePolicies_) if (e.id == o->spec.id) cfg.policy = e.policy;
+        o->comp.setConfig(cfg);
+    }
+}
+
 void RenderHost::applyStaged() {
     std::vector<OutputSpec> specs;
     {
@@ -47,8 +74,11 @@ void RenderHost::applyStaged() {
         o->fx.prepare(s.width, s.height);
         next.push_back(std::move(o));
     }
-    std::lock_guard<std::mutex> g(mapMutex_);
-    outputs_.swap(next);
+    {
+        std::lock_guard<std::mutex> g(mapMutex_);
+        outputs_.swap(next);
+    }
+    appliedPolicyVersion_ = ~0ull;                 // new compositors: policies must be applied again
 }
 
 void RenderHost::ensureScene(OutputRender& o, std::unique_ptr<ss::render::SceneRenderer>& r, std::uint32_t& cur,
@@ -70,6 +100,7 @@ std::size_t RenderHost::renderFrame() {
     using clk = std::chrono::steady_clock;
     const auto t0 = clk::now();
     applyStaged();
+    applyPolicies();
     const Ns now = clock_.nowMonotonic();
     const auto snap = show_.get();
     const auto table = scenes_.get();
@@ -81,11 +112,23 @@ std::size_t RenderHost::renderFrame() {
     std::vector<std::shared_ptr<OutputRender>> outs;
     { std::lock_guard<std::mutex> g(mapMutex_); outs = outputs_; }
 
+    const auto textReq = text_.get();
     std::size_t published = 0;
     for (auto& op : outs) {
         OutputRender& o = *op;
+        if (textReq && textReq->seq != o.textSeq) {         // REQ-S05: only a published request changes an output, and only a targeted one
+            o.textSeq = textReq->seq;
+            if (textReq->target == kAllOutputs || textReq->target == o.spec.id) {
+                if (textReq->clear) o.text.clear(); else (void) o.text.publish(textReq->item, now);
+            }
+        }
+        o.text.purgeExpired(now);
         ss::compose::FrameInputs in;
         in.nowNs = now;
+        in.text = &o.text;                                          // drawn only where the output's policy allows text (REQ-A09/S05)
+        if (snap) { o.overlay.tempo = snap->tempo; o.overlay.key = snap->key; }
+        o.overlay.clipWarning = haveFeat && feat.inputNearFullScale;
+        in.overlay = &o.overlay;
         const ss::show::OutputState* st = (snap && table) ? snap->output(o.spec.id) : nullptr;
         const bool blackout = (snap && (snap->visualBlackout || snap->emergencyBlackout)) || latch_.anyVisual();
         o.comp.setVisualBlackout(blackout);

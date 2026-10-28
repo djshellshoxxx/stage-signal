@@ -19,11 +19,13 @@ void registerReadinessSelfTests(SelfTestRegistry& r);
 void registerClipDecoderSelfTests(SelfTestRegistry& r);
 void registerBenchmarkSelfTests(SelfTestRegistry& r);
 void registerCameraSelfTests(SelfTestRegistry& r);
+void registerAudienceSelfTests(SelfTestRegistry& r);
 
 int runSelfTests(const std::string& selector) {
     SelfTestRegistry reg;
     registerShellSelfTests(reg);
     registerCameraSelfTests(reg);
+    registerAudienceSelfTests(reg);
     registerBenchmarkSelfTests(reg);
     registerClipDecoderSelfTests(reg);
     registerReadinessSelfTests(reg);

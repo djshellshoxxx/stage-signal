@@ -1,6 +1,8 @@
 #include "App/MediaWorker.h"
 #include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <limits>
 #include <juce_core/juce_core.h>
 #include "ss/base/actions.hpp"
 
@@ -103,8 +105,42 @@ void MediaWorker::clearMedia() {
     for (auto& frame : clipFrames_) frame.reset();
     for (auto& path : clipPaths_) path.clear();
     layers_.clearAll();
+    clearTextBanner();
 }
-ss::Status MediaWorker::setTextBanner(const std::string& utf8, std::uint32_t w, std::uint32_t h) { return layers_.setText(utf8, w, h); }
+ss::Status MediaWorker::setTextBanner(const std::string& utf8, const TextOptions& o, ss::OutputId target, std::uint32_t w, std::uint32_t h) {
+    if (utf8.empty()) { clearTextBanner(target); return ss::okStatus(); }
+    if (!textSink_) return ss::makeError(ss::ErrorCategory::UnsupportedCapability, "No audience output is connected to show text on.");
+    if (!(o.durationSec == 0.0 || (o.durationSec >= 0.1 && o.durationSec <= 3600.0)))
+        return ss::makeError(ss::ErrorCategory::InvalidArgument, "Text duration must be 0 (hold) or between 0.1 and 3600 seconds.");
+    auto px = rasterText(utf8, w, std::max<std::uint32_t>(32, h / 5));
+    if (!px.ok()) return px.error();
+    auto req = std::make_shared<TextRequest>();
+    req->target = target;
+    req->item.id = 1;                                   // one banner: a new publish replaces the previous one
+    req->item.utf8 = utf8;
+    req->item.bitmap = std::make_shared<const ss::PixelBuffer>(std::move(px.value()));
+    req->item.colorBitmap = true;                       // rasterText already carries the text colour
+    req->item.x = o.x; req->item.y = o.y; req->item.size = o.size;
+    req->item.durationSec = o.durationSec; req->item.fadeSec = o.fadeSec; req->item.scroll = o.scroll;
+    // Validate with the same rules the render thread applies, so a bad request is reported here and not dropped there.
+    ss::compose::TextLayer probe;
+    auto ok = probe.publish(req->item, 0);
+    if (!ok.ok()) return ok.error();
+    req->seq = textSeq_.fetch_add(1, std::memory_order_relaxed) + 1;
+    const Ns now = adapters_.clock ? adapters_.clock->nowMonotonic() : 0;
+    textEndNs_.store(o.durationSec == 0.0 ? std::numeric_limits<std::int64_t>::max() : now + static_cast<std::int64_t>(std::llround(o.durationSec * 1e9)), std::memory_order_relaxed);
+    textSink_(std::move(req));
+    return ss::okStatus();
+}
+
+void MediaWorker::clearTextBanner(ss::OutputId target) {
+    if (!textSink_) return;
+    auto req = std::make_shared<TextRequest>();
+    req->clear = true; req->target = target;
+    req->seq = textSeq_.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (target == ss::kAllOutputs) textEndNs_.store(-1, std::memory_order_relaxed);
+    textSink_(std::move(req));
+}
 
 bool MediaWorker::wantsAudio() const { return wantAudio_.load(std::memory_order_relaxed); }
 
@@ -258,7 +294,11 @@ void MediaWorker::publish() {
     recView_ = r;
     bcView_ = b;
     mediaView_.workerAvailable = true;
-    mediaView_.loadedItems = layers_.loaded();
+    {
+        const std::int64_t end = textEndNs_.load(std::memory_order_relaxed);
+        const Ns now = adapters_.clock ? adapters_.clock->nowMonotonic() : 0;
+        mediaView_.loadedItems = layers_.loaded() + ((end >= 0 && now < end) ? 1u : 0u);      // published text counts while it is on screen
+    }
     mediaView_.cameraPreview = camera_.preview();
     if (adapters_.camera) mediaView_.cameraState = static_cast<unsigned char>(camera_.state());
     mediaView_.note = layers_.lastNote();

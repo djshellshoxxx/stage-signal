@@ -164,15 +164,14 @@ SelfTestResult imageAndText() {
 
     MediaLayers layers;
     REQUIRE_T(layers.setImage(0, png.getFullPathName().toStdString(), ss::media::Tier::Standard).ok(), "layer import");
-    REQUIRE_T(layers.setText("Hello", 320, 180).ok(), "layer text");
     ss::compose::FrameInputs in;
     layers.fillLayers(1, 0, in);
-    REQUIRE_T(in.mediaCount == 2 && in.media[0].frame && in.media[0].frame->width == 40, "layers not offered to the compositor");
+    REQUIRE_T(in.mediaCount == 1 && in.media[0].frame && in.media[0].frame->width == 40, "layers not offered to the compositor");
     layers.clearAll();
     ss::compose::FrameInputs none;
     layers.fillLayers(1, 0, none);
     REQUIRE_T(none.mediaCount == 0, "cleared layers still offered");
-    return {true, "png decode, active content refused, text raster, compositor layers"};
+    return {true, "png decode, active content refused, text raster, compositor image layer"};
 }
 
 SelfTestResult idleIsDisarmed() {

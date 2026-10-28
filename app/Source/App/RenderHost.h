@@ -26,6 +26,19 @@ struct SceneTable {
 
 struct OutputSpec { OutputId id = 0; std::uint32_t width = 800, height = 600; int rotationDeg = 0; };
 
+// Per-output audience policy (REQ-A09, REQ-S05): which of text, BPM/key, branding and diagnostics an output may show.
+// Outputs without an entry use the compositor default (text on, everything else off).
+struct OutputPolicyEntry { OutputId id = 0; ss::compose::OutputPolicy policy; };
+
+// One published text change, handed from the control side to the RENDER thread (newest wins). `target` selects the
+// outputs that change (kAllOutputs = every output); outputs not targeted keep whatever text they already show.
+struct TextRequest {
+    std::uint64_t seq = 0;
+    bool clear = false;
+    OutputId target = kAllOutputs;
+    ss::compose::TextItem item;
+};
+
 struct RenderStats {
     std::uint64_t framesRendered = 0, framesDropped = 0;
     double fpsMeasured = 0.0, lastFrameMs = 0.0, worstFrameMs = 0.0;
@@ -49,6 +62,10 @@ public:
     // Any thread. Applied by the render thread at the next frame boundary (allocates there, not per frame).
     void setOutputs(std::vector<OutputSpec> specs);
     void setLayerSource(IRenderLayerSource* s) { layers_ = s; }       // before the thread starts
+    // Any thread. Applied by the render thread at the next frame boundary.
+    void setPolicies(std::vector<OutputPolicyEntry> entries);
+    // Any thread. `seq` must increase with every request; the render thread applies each output at most once per seq.
+    void publishText(std::shared_ptr<const TextRequest> r) { text_.publish(std::move(r)); }
 
     // RENDER thread. Renders and publishes one frame per output. Returns the number of frames published.
     std::size_t renderFrame();
@@ -74,6 +91,9 @@ private:
         ss::render::EffectScratch fx;
         Ns sceneStartNs = 0;
         std::uint64_t sequence = 0;
+        ss::compose::TextLayer text;                // published text for this output (RENDER thread only)
+        std::uint64_t textSeq = 0;                  // last TextRequest applied
+        ss::compose::OverlayInfo overlay;           // BPM/key/clip info refreshed every frame
     };
     void applyStaged();
     void ensureScene(OutputRender& o, std::unique_ptr<ss::render::SceneRenderer>& r, std::uint32_t& cur,
@@ -88,6 +108,14 @@ private:
     IRenderLayerSource* layers_ = nullptr;
     std::atomic<double> targetFps_{25.0};
     std::atomic<std::uint32_t> tint_{0};
+
+    LatestShared<TextRequest> text_;
+    std::mutex policyMutex_;
+    std::vector<OutputPolicyEntry> policies_;
+    std::atomic<std::uint64_t> policyVersion_{0};
+    std::uint64_t appliedPolicyVersion_ = ~0ull;   // RENDER thread only
+    std::vector<OutputPolicyEntry> activePolicies_;  // RENDER thread only: copy of policies_ at appliedPolicyVersion_
+    void applyPolicies();
 
     std::mutex stageMutex_;
     std::vector<OutputSpec> staged_;

@@ -151,6 +151,7 @@ private:
     void shellPushMediaConfig();                                      // builds MediaConfig from settings/prefs, hands it to the worker
     void controlAdapt(ss::Ns now);
     void shellMessageTick();
+    void shellPushAudiencePolicies();                                 // router policy per visual output -> render host (REQ-A09/S05)
     void shellMusicTick(const ss::show::ShowSnapshot& snap, const ss::FeatureSnapshot& f, ss::Ns now);
     void drainActions();
     ss::ActionResult dispatch(const ss::Action& a);

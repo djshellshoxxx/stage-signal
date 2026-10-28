@@ -277,3 +277,15 @@ Not done: window position persistence per display identity; wizard completion pe
 - [S3] CLAP 1.2.10 headers, `include/clap/ext/gui.h`: https://github.com/free-audio/clap, read 2026-10-20.
 - [S4] StageSignal spec v0.1 sections 8, 10, 16, 17 and addendum v0.2 (in repo).
 - [S5] `.github/workflows/ci.yml` (Xvfb smoke step), `app/CMakeLists.txt`, `app/Source/Plugin/PluginProcessor.cpp` (in repo).
+
+## Audience policy and published text (28 Oct 2026)
+`RenderHost::setPolicies` gives each visual output its compositor `OutputPolicy` (text, BPM/key, branding, diagnostics), derived from the
+display router's routes by `AppController::shellPushAudiencePolicies` (called after every show load and after `ToggleOverlayBpmKey`).
+`RenderHost` fills `FrameInputs::overlay` with the effective tempo and key from the show snapshot and the input-clip flag; the compositor
+draws only what the policy allows, and never draws an Unknown tempo or key as a number. Published text is a `TextRequest`
+(`RenderHost::publishText`, newest wins, `seq` increases) holding a `compose::TextItem`; each output applies a request at most once, only
+when `target` is kAllOutputs or its id, into its own `TextLayer` (placement, size, duration, fade, one bounded scroll pass). `MediaWorker::setTextBanner`
+rasterises on the calling thread; `clearTextBanner` and `TextClear` clear every output. Options come from prefs `text.duration` (0 = hold),
+`text.fade`, `text.scroll`, `text.y`, `text.size`; out-of-range values fall back to defaults. Not done: UI controls for those options, saving the
+BPM/key toggle in the show file, and a BPM/key toggle state shown in the Setup tab (it always draws "off").
+Tests: `Tests/AudienceSelfTests.cpp` (RenderHost with a fake clock, no threads).
