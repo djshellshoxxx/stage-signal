@@ -122,7 +122,7 @@ Test column: doctest case count that names the requirement (`REQ-x: ...`) per `t
 | ID | Class | Evidence |
 |---|---|---|
 | R01 record program + audio | **Partial** | record (9). WAV works end to end via `RecordRunner`; video needs an external ffmpeg with an eligible encoder. Linux self-tests use a **fake ffmpeg script** (`record:video-via-fake-ffmpeg`). |
-| R02 compressor/limiter default | **Partial** | dynamics (13), record (1). True-peak limiter is a meter only, "not implemented and not qualified". |
+| R02 compressor/limiter default | **Partial (true-peak limiter added, opt-in)** after `claude/ss-truepeak` | `dynamics/test_dsp.cpp` (13), record (1). New opt-in true-peak limiter validated on a synthetic adversarial set against an independent reference meter (`test_truepeak_limiter.cpp`); default remains the sample-peak limiter; no music corpus, so qualification stays open. App does not apply the dynamics processing delay to recorded audio timestamps (existing gap). |
 | R03 A/V sync | **Partial** | dynamics (7), record (2). Logic only; not measured over 1 h (L-05). Windows/Linux host time is estimated (P-02). |
 | R04 disk-low graceful | **Done (logic)** | record (9), dynamics (1) |
 | R05 audio-only recording | **Done** | record (10), dynamics (12) |
@@ -164,7 +164,7 @@ Row-naming drift: NEW-xx and FEAT tests are not all named with their ID, so the 
 | G8 | Moving media | Video/GIF animation not decoded in the app. | Missing | Module `ss-media-decode` (ffmpeg child process route is already in the spec; no new dependency). |
 | G9 | Audio-loss/idle policy (D09) | Not implemented. | Missing | Module `ss-audio-health` (core `show` + app wiring). |
 | G10 | X04 port scan | Idle-process check exists on Linux (PR #18); armed-state and non-Linux enumeration do not. | Partial | Extend the self-test to the armed lighting state (expect exactly the declared UDP socket) and add Windows/macOS equivalents. |
-| G11 | True-peak limiter | Meter only. | Missing | Needs a qualification corpus first; defer. |
+| G11 | True-peak limiter | Implemented opt-in (PR `claude/ss-truepeak`), synthetic-validated only. | Partial | Qualification on a music corpus and a codec round trip (needs the owner's corpus); BASE-tier CPU measurement. |
 | G12 | S16 offline test | Covered on Linux by the PR #18 idle-socket test; see S16. | Partial | Windows/macOS equivalents. |
 | G13 | Display identity | Hash only. | Partial | Evaluate `fix/macos-display-identity` (separate PR, not merged here). |
 

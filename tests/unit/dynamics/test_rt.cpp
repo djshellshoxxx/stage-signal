@@ -94,3 +94,34 @@ TEST_CASE("REQ-P05: sync hot paths (LinearResampler, ClockMap prediction) do not
     (void)map.estimate();
     CHECK(scope.count() == 0);
 }
+
+TEST_CASE("REQ-P05: the true-peak limiter does not allocate in process() or on parameter changes") {
+    using namespace dyntest;
+    DynamicsConfig cfg;
+    cfg.truePeakLimiter = true;
+    DynamicsProcessor proc;
+    proc.setParams(DynamicsParams{});
+    REQUIRE(proc.prepare(cfg).ok());
+    std::vector<float> in = sineStereo(512, 15000.0, 1.6, 48000.0, 0.7), out(1024);
+    ss::Rng rng(11);
+    {
+        CountScope scope;
+        for (int i = 0; i < 300; ++i) {
+            DynamicsParams p;
+            p.thresholdDb = rng.range(-36, 0); p.ratio = rng.range(1, 10); p.ceilingDb = rng.range(-12, -0.5f);
+            p.limiterReleaseMs = rng.range(20, 500); p.bypass = (i / 25) % 2 == 1;
+            proc.setParams(p);
+            proc.process(in.data(), out.data(), 512);
+            proc.process(in.data(), out.data(), 1);
+            (void)proc.telemetry();
+        }
+        CHECK(scope.count() == 0);
+    }
+    long processAllocs = 0;
+    {
+        CountScope scope;
+        for (int i = 0; i < 100; ++i) proc.process(in.data(), out.data(), 512);
+        processAllocs = scope.count();
+    }
+    CHECK(processAllocs == 0);
+}

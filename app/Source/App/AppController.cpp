@@ -202,6 +202,7 @@ ss::Status AppController::start() {
     // 7 UI and audience windows are created by the host application / editor, not by the controller.
     step("ui", true, [] { return ss::okStatus(); });
     // 8 Analysis worker, prepared before audio starts so the first block has a consumer.
+    analysis_.setTruePeakLimiter(pref("dynamics.truepeak") == "1");     // REQ-R02 opt-in, read once at start
     step("analysis", false, [&] { startLoop(analysisT_, "ANALYSIS", ThreadId::Analysis, true, &AppController::analysisBody); return ss::okStatus(); });
     // 9 Audio. Standalone opens the saved device (never another one); CLAP waits for the host's prepareToPlay.
     step("audio", !hostMode().ownsAudioDevice(), [&]() -> ss::Status {

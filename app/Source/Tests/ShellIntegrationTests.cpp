@@ -104,6 +104,26 @@ SelfTestResult stateBlobRoundtrip() {
     return pass("round trip, 6 corruption cases rejected, reference form");
 }
 
+SelfTestResult truePeakOptIn() {
+    // REQ-R02: the true-peak limiter is off unless the preference asks for it, and then the processed recording path uses it.
+    auto run = [&](bool on, std::string& json) {
+        AppConfig cfg = headlessCfg(); cfg.startAudio = true;
+        AppController c(makeFakeAdapterSet(true), cfg);
+        if (on) c.setPreference("dynamics.truepeak", "1");
+        if (!c.start().ok()) return false;
+        const bool ready = waitFor([&] { return c.analysis().dynamics().telemetry().ready; }, 4000);
+        json = c.analysis().dynamics().metadataJson();
+        c.stop();
+        return ready;
+    };
+    std::string off, on;
+    if (!run(false, off)) return fail("dynamics never became ready (off)");
+    if (!run(true, on)) return fail("dynamics never became ready (on)");
+    if (off.find("\"trueTpLimiter\":false") == std::string::npos) return fail("default session is not the sample-peak limiter");
+    if (on.find("\"trueTpLimiter\":true") == std::string::npos) return fail("preference dynamics.truepeak=1 did not enable the true-peak limiter");
+    return pass("sample-peak by default, true-peak with dynamics.truepeak=1");
+}
+
 SelfTestResult stateBlobNeverArms() {
     AppController c(makeFakeAdapterSet(false), headlessCfg());
     if (!c.start().ok()) return fail("start");
@@ -454,6 +474,7 @@ SelfTestResult callbackNoAlloc() {
 void registerShellIntegrationTests(SelfTestRegistry& r) {
     r.add("shell: state blob roundtrip", stateBlobRoundtrip);
     r.add("shell: state blob never arms", stateBlobNeverArms);
+    r.add("shell: true-peak limiter is opt-in", truePeakOptIn);
     r.add("shell: recovery marker", recoveryMarker);
     r.add("shell: show persistence", showPersistence);
     r.add("shell: secondary mode", secondaryMode);
