@@ -9,7 +9,8 @@
 
 namespace ss::model {
 
-constexpr std::uint32_t kSchemaMajor = 1, kSchemaMinor = 0;
+constexpr std::uint32_t kSchemaMajor = 1, kSchemaMinor = 1;     // minor 1: optional tempo/key overrides (REQ-A06/A08)
+constexpr double kMinOverrideBpm = 30.0, kMaxOverrideBpm = 300.0;
 
 // Provisional import limits (spec section 17).
 struct Limits {
@@ -147,6 +148,16 @@ struct JournalEntry {
     std::string detail;                         // sanitized
 };
 
+// Operator overrides saved with the show (REQ-A06 / REQ-A08). Inactive by default and then not written at all.
+struct TempoKeyOverrides {
+    bool tempoActive = false;
+    double bpm = 0.0;                           // kMinOverrideBpm..kMaxOverrideBpm when tempoActive
+    bool tempoTap = false;                      // true: the value came from tap tempo (labelled Tap), else Manual
+    bool keyActive = false;
+    int tonic = -1;                             // 0=C .. 11=B when keyActive
+    bool keyMinor = false;
+};
+
 struct ShowDocument {
     std::uint32_t schemaMajor = kSchemaMajor, schemaMinor = kSchemaMinor;
     std::string uuid, name = "Untitled show";
@@ -165,6 +176,7 @@ struct ShowDocument {
     std::uint64_t seed = 1;
     int minDwellSec = 8, repeatHistory = 3;
     bool strobingDisabled = false;
+    TempoKeyOverrides overrides;
     std::vector<JournalEntry> journal;
 };
 

@@ -17,11 +17,12 @@ double besselI0(double x) {
 }
 }  // namespace
 
-TruePeakMeter::TruePeakMeter() {
-    constexpr int N = kOversample * kTapsPerPhase;   // 48 taps, centre at tap 24 (grid aligned)
-    constexpr double beta = 8.0;
+template <int kOS, int kTaps, int kBeta>
+OversampledPeak<kOS, kTaps, kBeta>::OversampledPeak() {
+    constexpr int N = kOversample * kTapsPerPhase;   // centre at tap N/2 (grid aligned)
+    constexpr double beta = kBeta / 10.0;
     const double pi = 3.14159265358979323846;
-    std::array<double, N> h{};
+    std::array<double, static_cast<std::size_t>(N)> h{};
     const double c = N / 2;
     for (int i = 0; i < N; ++i) {
         const double t = (i - c) / kOversample;      // input-sample units
@@ -41,15 +42,17 @@ TruePeakMeter::TruePeakMeter() {
     reset();
 }
 
-void TruePeakMeter::reset() { hist_.fill(0.0f); pos_ = 0; peak_ = 0.0f; }
+template <int kOS, int kTaps, int kBeta>
+void OversampledPeak<kOS, kTaps, kBeta>::reset() { hist_.fill(0.0f); pos_ = 0; peak_ = 0.0f; }
 
-float TruePeakMeter::push(float x) {
+template <int kOS, int kTaps, int kBeta>
+float OversampledPeak<kOS, kTaps, kBeta>::push(float x) {
     pos_ = (pos_ + 1) % kTapsPerPhase;
     hist_[static_cast<std::size_t>(pos_)] = x;
     hist_[static_cast<std::size_t>(pos_ + kTapsPerPhase)] = x;
     float best = 0.0f;
     for (int p = 0; p < kOversample; ++p) {
-        // y_p[n] = sum_j h[p + 4j] * x[n - j]; x[n - j] lives at hist_[pos_ + 12 - j]
+        // y_p[n] = sum_j h[p + kOversample*j] * x[n - j]; x[n - j] lives at hist_[pos_ + kTapsPerPhase - j]
         float acc = 0.0f;
         const auto& c = coef_[static_cast<std::size_t>(p)];
         for (int j = 0; j < kTapsPerPhase; ++j)
@@ -59,6 +62,9 @@ float TruePeakMeter::push(float x) {
     peak_ = std::max(peak_, best);
     return best;
 }
+
+template class OversampledPeak<4, 12, 80>;
+template class OversampledPeak<8, 32, 30>;
 
 float truePeakOf(const float* x, std::size_t n) {
     TruePeakMeter m;

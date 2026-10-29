@@ -1,6 +1,6 @@
 # app-adapters: platform adapters over the portable core
 
-Status: spec v0.2-draft, 20 Oct 2026. Layer: `app/Source/Adapters`. Baseline: spec v0.1 sections 7 to 18, addendum v0.2, `docs/ARCHITECTURE.md`, `core/base` interfaces. Nothing here is implemented. Facts marked [V] were checked against the JUCE `8.0.16-security` source, clap-juce-extensions, the Art-Net 4 PDF or a vendor page (sources at the end); facts marked [U] are unverified and must be confirmed by the first spike.
+Status: spec v0.2-draft, 20 Oct 2026. Layer: `app/Source/Adapters`. Baseline: spec v0.1 sections 7 to 18, addendum v0.2, `docs/ARCHITECTURE.md`, `core/base` interfaces. Implementation status: see the "Implementation status" section at the end. Facts marked [V] were checked against the JUCE `8.0.16-security` source, clap-juce-extensions, the Art-Net 4 PDF or a vendor page (sources at the end); facts marked [U] are unverified and must be confirmed by the first spike.
 
 ## 1. Scope and requirement ids
 
@@ -60,9 +60,11 @@ The host owns the device. `processBlock` copies into the same `SpscQueue` and st
 |---|---|---|
 | Windows | `QueryDisplayConfig` / `DisplayConfigGetDeviceInfo` with `DISPLAYCONFIG_TARGET_DEVICE_NAME` (monitorDevicePath, EDID manufacturer + product code) | documented fields [V]; matching to a JUCE `Display` by bounds |
 | Linux X11 | XRandR output + `EDID` output property | [V] property exists; Wayland: no EDID via X, falls back to name + size |
-| macOS | `CGDisplayCreateUUIDFromDisplayID` | [U] the Apple doc page did not load; confirm in the spike |
+| macOS | `CGDisplayVendorNumber`, `CGDisplayModelNumber`, and `CGDisplaySerialNumber` from CoreGraphics | public API; unknown-vendor, generic-model, no-monitor, and missing-serial values are unavailable [A8-A10] |
 
 Identity record: `{vendor, product, serialOrHash, connector, sizePx}`. Matching order: serial/EDID hash, then connector, then size+position. Two displays with identical records (same model, no serial) are "indistinguishable": their role stays unassigned until the operator confirms with the Identify flow (REQ-D01). The role map is stored by identity.
+
+For macOS, build the canonical decimal tuple `vendor:model:serial` from the three CoreGraphics values and set identity to `macos:` plus the lowercase SHA-256 of that tuple. A zero field, `kDisplayVendorIDUnknown`, `kDisplayProductIDGeneric`, or the `0xFFFFFFFF` no-monitor value means identity is unavailable. Do not fall back to the display ID, connector, geometry, mode, or a random value. Do not persist or log the raw serial. Equal tuples remain ambiguous and must be rejected by the common matching rule. This keeps the identity independent of resolution, arrangement, and scale, while making unknown or non-unique hardware fail closed.
 
 ### 4.2 Audience windows
 
@@ -197,7 +199,7 @@ Under Xvfb: window and focus tests run with the real JUCE peer; there is no soun
 
 ## 16. Honest limits
 
-- No stable display identity from JUCE; identity providers are platform code that cannot be tested in CI beyond fakes.
+- No stable display identity from JUCE; CI compile-checks platform providers and tests portable identity logic, but real serial availability, hot-plug identity stability, and multi-display mapping still require hardware.
 - Windows/Linux audio host time is estimated, so A/V sync is calibrated, not guaranteed; plugin mode cannot read host time.
 - Stream key exposure on the command line in v1 is a known weakness until a relay or a different client exists.
 - No Linux camera in v1. No Wayland embedded CLAP GUI. No serial DMX timing claim.
@@ -213,3 +215,59 @@ Under Xvfb: window and focus tests run with the real JUCE peer; there is no soun
 - [A5] X.Org RandR protocol (EDID property).
 - [A6] Local FFmpeg tests in the author's sandbox (kill test, `-/opt` test, `whip` muxer absent); not reproducible from a URL, rerun in CI.
 - [A7] ESTA ANSI E1.31 (sACN): not fetched in this pass, hence [U] markers.
+- [A8] Apple Developer Documentation, [CGDisplayVendorNumber](https://developer.apple.com/documentation/coregraphics/cgdisplayvendornumber(_:)); accessed 2026-10-24.
+- [A9] Apple Developer Documentation, [CGDisplayModelNumber](https://developer.apple.com/documentation/coregraphics/cgdisplaymodelnumber(_:)); accessed 2026-10-24.
+- [A10] Apple Developer Documentation, [CGDisplaySerialNumber](https://developer.apple.com/documentation/coregraphics/cgdisplayserialnumber(_:)); accessed 2026-10-24.
+
+## Implementation status (engine-adapters-desktop, 21 Oct 2026)
+
+Code: `app/Source/Engine/Desktop/**`, `Engine/DesktopAdapters.cpp` (`makeDesktopAdapterSet`, `SS_FAKE_ADAPTERS=1` keeps the pure fakes), `App/LightingScheduler.*`, `App/MidiScheduler.*`. Self-tests `adapters-*` in `Tests/AdaptersDesktopSelfTests.cpp` run headless (Linux, Xvfb, no hardware): 12 of 12 pass.
+
+| Adapter | State | Verified |
+|---|---|---|
+| Audio (`JuceAudioSource`) + `LinearFitTimestampMapper` | Done: AudioDeviceManager input, callback interleaves into a preallocated buffer and calls `IAudioSink::pushBlock`; loss/return supervisor (2 s x 30, then 10 s); mapper converges/rejects outliers/degrades | Linux headless: no-device path, simulated loss/return, mapper maths. A real device, ASIO, CoreAudio hostTime and WASAPI are unverified |
+| MIDI (`JuceMidiProvider`, `MidiDriver`) | Done: enumeration, open in/out, 1 s-class rescan with loss reporting, per-port SPSC rings, engine wiring | Linux headless with zero ports only. No hardware, no virtual ports, no Windows/macOS |
+| UDP (`UdpPacketSink`) | Done: native sockets, bind to chosen interface, multicast IF/TTL, SO_BROADCAST opt-in, non-blocking | Linux loopback, byte-exact. Winsock and macOS branches are guarded code that was not compiled here. No per-sink rate cap: the 1..40 Hz gate is in `LightingEngine`/`LightingScheduler` |
+| Lighting tick handler (`LightingDriver`) | Done: owns `LightingEngine`; the sink is gated so nothing reaches the network while disarmed; transport loss disarms | Test against real UDP on loopback |
+| MIDI tick handler (`MidiDriver`) | Done: reconcile ports, drain rings into `MidiEngine::onBytes`, `poll` to an action sink, `dueOutput` to the output port only while enabled | Only with no ports; output path covered by core tests, not by an adapter test |
+| Durable FS | Done: write + fsync, F_FULLFSYNC on macOS, directory fsync, free space | Linux. Windows directory sync is a documented no-op |
+| Perf counters | Done: /proc, getrusage+mach, GetProcessTimes+PSAPI | Linux only |
+| Log sink (`RingLogSink`) | Done: sanitised, 5 MiB x 5 rotation, bounded ring, drops counted | Linux |
+| Safe ZIP | Done: own central-directory parser (sizes, encryption, symlink, zip64 refused), `validateArchive`, JUCE only inflates and must agree with the parser, size-capped streaming, deterministic atomic write | Linux, 10 hostile archives |
+| Secrets | Windows Credential Manager and Linux libsecret (dlopen) are written but unverified; macOS Keychain is implemented (`SecItem*` generic passwords, WhenUnlockedThisDeviceOnly) and compiled by CI on both macOS architectures, but has never run against a real keychain (28 Oct 2026). With no keychain the store refuses to save and reports Unavailable; there is no file fallback (the encrypted-file fallback of section 10 is not built) | Linux headless: Unavailable path only |
+| Displays | Partial: Windows device-path and Linux XRandR/EDID providers are present. The macOS provider now hashes the public vendor/model/serial tuple and rejects unknown or incomplete values; the change awaits a native SDK compile. | Focused portable helper test passes; full app/macOS build awaits PR CI. No physical multi-display qualification |
+| File dialogs | `FileChooser::launchAsync`, not run in CI | Not run |
+| Serial DMX | Unchanged: `NullSerialDmx` reports Unavailable | n/a |
+
+Not done: audio is not yet wired to `StageSignalProcessor::processBlock` / `AudioProcessorPlayer` (the source feeds `IAudioSink` directly, which is what `AppController` uses). Cue/manual looks for the lighting engine and MIDI mappings must be fed by the controller through `LightingDriver::post` and `MidiDriver::post/wantInput/setActionSink`.
+
+## Implementation status: media, record, broadcast (engine-media-record, 21 Oct 2026)
+
+Code: `Engine/Media/NativeProcess.*` (supervisor), `Engine/Media/ImageDecode.*`, `App/Media/**` (`RecordRunner`, `BroadcastRunner`, `MediaLayers`), `App/MediaWorker.*`. Self-tests (`media:*`, `record:*`, `broadcast:*` in `Tests/MediaRecordSelfTests.cpp`) run headless on Linux against a fake ffmpeg written as an sh script. Real ffmpeg and real streaming endpoints were never run.
+
+| Piece | State | Verified |
+|---|---|---|
+| Process supervisor (P-07) | Done: `posix_spawn`, argv only, scrubbed env, separate stdout/stderr, bounded non-blocking stdin plus a second input pipe (fd 3), stop = EOF then kill. Windows: `CreateProcess` with stdin/stdout/stderr only, no second pipe, so video record and broadcast report "not available" there | Linux: round trip, exit code, kill, missing program. Windows branch not compiled |
+| ffmpeg discovery | Done: user path, next to app, PATH; `-version`, `-encoders`, one-frame test encode per eligible encoder (3 s each, on the worker thread) | Fake script only. libx264 is excluded by the record core (GPL); a hardware encoder or libopenh264 is needed |
+| Recording | Done: WAV always (core `AudioOnlyRecorder`, journal, metadata JSON, markers CSV, disk checks every 5 s); video as an extra Matroska segment process when ffmpeg and an eligible encoder exist; otherwise the view says why and WAV continues. Not started by anything except a user action | Linux with fake ffmpeg; WAV header parsed. Not tested: segment rollover in the app, disk-low stop, encoder crash mid-record, recovery banner |
+| Broadcast | Done: two-step start (summary, then confirm within 15 s), `StartToken` from Ui/Keyboard/Midi only, tap audio and rendered frames into bounded queues, stop kills within the core's budget. Stream key is resolved from the secret store at start and is still on the ffmpeg argv (known weakness) | Fake ffmpeg: Live, stop, no leak into the view. Not tested: reconnect through the app, real RTMPS/SRT |
+| Still images, text raster, layers | Done: sniff and header validation, then `juce::ImageFileFormat`; GIF shows the first frame only; no video decode; up to 3 image layers plus a text banner through `IRenderLayerSource` | PNG, hostile SVG refused, text pixels, compositor offer |
+| Camera | NOT implemented. `juce_video` is not linked and JUCE has no Linux camera (P-04); the adapter stays `NullCameraSource` (Unsupported). A Windows/macOS `juce::CameraDevice` adapter needs `juce_video` in `app/CMakeLists.txt` and a CI build on both | n/a |
+
+Needs from other owners: the desktop adapter set must return `makeNativeProcessSupervisor()` as `processes` (today it is the fake, so ffmpeg is never found in the real app); the controller must call `MediaWorker::setFrameProvider` and route `AddMarker` to `MediaWorker::handleAction`; the UI must call `MediaWorker::configure` (folder, ffmpeg path, broadcast endpoint) and send `StartBroadcast` twice (value 0 for the summary, value 1 to confirm).
+
+## Camera implementation update, 22 October 2026
+
+`Engine/Desktop/JuceCameraSource` uses JUCE CameraDevice on Windows/macOS, with an explicit selected-name binding and no fallback. Linux returns Unsupported, as specified. The capture callback only stores an image reference; MEDIA polling converts bounded RGBA frames. The application supplies the macOS camera usage description. `App/Media/CameraFeed` owns preview/publication/source-loss policy and passes the published camera layer to the compositor. A fake-camera self-test covers privacy, output routing, loss timeout and close; no real camera has been qualified.
+
+## Stage Signal follow-on handoff: macOS display identity
+
+This work is based on live repository comparisons, not a reconstruction of the unavailable parent checkpoint. The selected integrated base is `feat/release-formats` at `058fc7e168bdb96683956a09f5c342bf0d8f972e`; the dedicated compare confirms the live branch is identical to that SHA, 23 commits ahead of `main` (`62db70174c8ed89f7b4e5eef0ee5a1b21909c577`) and 6 commits ahead of PR 15 (`d4aaab297a7366317074441040517835038082bc`). PRs 13, 14, and 15 remain open; PR 14 edits README/wiki files, so keep this follow-on away from README until that overlap is reconciled. The diverged `claude/jolly-hawking-608dbp` line is not a suitable base. The parent checkpoint `118c7302eec0248dc240b13edacc986f14908bcf` is not present in the clone or live refs.
+
+**Connector history:** the earlier description of a “denial” was inaccurate. `mcp__codex_apps__github_fetch` was called on `https://api.github.com/repos/djshellshoxxx/stage-signal/compare/main...<branch-ref>` and returned exactly `HTTPError: 400: GitHub Fetch URL is not an allowed public GitHub repository or search endpoint. (Response: None)`. No approval request, escalation, or auto-review decision existed; this was an unsupported URL, not a repository permission or security denial. The parent supplied the documented `mcp__codex_apps__github_compare_commits` route, and live comparisons then succeeded. A later generic branch-object read at `https://api.github.com/repos/djshellshoxxx/stage-signal/branches/feat%2Frelease-formats` returned `HTTPError: 400: GitHub Fetch URL contains an invalid repository path. (Response: None)`; no approval was requested and no remote mutation occurred. Do not retry either generic URL.
+
+The macOS build failure on `feat/release-formats` is `CGDisplayCreateUUIDFromDisplayID` being undeclared in `NativeDisplayIdentity.cpp`; the beta workflow failed on both macOS architectures and skipped release publication. This follow-on replaces that call with the documented CoreGraphics vendor/model/serial tuple, hashes it, and refuses identity for missing or sentinel values. No release workflow should be dispatched for verification because it uploads artifacts; use pull-request CI only. The prior Linux self-test report is 52 app tests passing in four runs on the base, but this macOS path has not yet been compiled here.
+
+**Status:** the spec was committed first (`1c2a81578d0df09b845231b081dc399dff1b082d`). The implementation adds a pure tuple hash, a registered self-test with a golden hash and sentinel cases, and a compile-only macOS PR-CI matrix for arm64 and x86_64. A focused C++ harness against the production identity helper passes with `-Wall -Wextra -Werror`; CI YAML parses. The full app build and registered self-test cannot run locally because CMake/Ninja are absent. Native macOS CI is still required to prove SDK declarations and linking. Real displays, hardware serial availability, hot-plug persistence, and multi-display ambiguity remain acceptance items. Do not claim device qualification. `docs/ARTWORK.md` labels the project as software artwork while retaining functional development and acceptance detail; README changes are deferred because PR 14 is still open.
+
+**Next:** commit and push this slice on `fix/macos-display-identity`, open a narrowly scoped PR against `feat/release-formats`, and verify both macOS CI matrix results plus the Linux app self-tests. Do not dispatch the beta workflow. Include the final commit SHA, test commands/results, CI outcomes, failures, and unresolved hardware checks in this handoff before integration.

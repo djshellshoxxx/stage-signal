@@ -284,3 +284,52 @@ TEST_CASE("REQ-S13: peekSchema reads the version without building a document") {
     CHECK_FALSE(peekSchema(R"({"schema":{"major":-1,"minor":0}})").ok());
     CHECK(peekSchema(R"({"schema":{"major":0,"minor":3}})").value().major == 0);   // legacy pre-release schema, migratable
 }
+
+// ---- REQ-A06 / REQ-A08: tempo and key overrides are saved with the show ------------------------------------------------
+TEST_CASE("REQ-A06: tempo and key overrides survive save and load") {
+    auto doc = fx::sampleDoc();
+    doc.overrides.tempoActive = true; doc.overrides.bpm = 127.5; doc.overrides.tempoTap = true;
+    doc.overrides.keyActive = true; doc.overrides.tonic = 9; doc.overrides.keyMinor = true;
+    const auto text = showToJson(doc);
+    REQUIRE(text.ok());
+    auto back = showFromJson(text.value());
+    REQUIRE(back.ok());
+    const auto& o = back.value().doc.overrides;
+    CHECK(o.tempoActive); CHECK(o.bpm == doctest::Approx(127.5)); CHECK(o.tempoTap);
+    CHECK(o.keyActive); CHECK(o.tonic == 9); CHECK(o.keyMinor);
+    CHECK(back.value().warnings.empty());
+}
+
+TEST_CASE("REQ-A06: a show without overrides loads with none and writes none") {
+    const auto doc = fx::sampleDoc();
+    const auto text = showToJson(doc);
+    REQUIRE(text.ok());
+    CHECK_FALSE(has(text.value(), "tempoOverride"));
+    CHECK_FALSE(has(text.value(), "keyOverride"));
+    auto back = showFromJson(text.value());
+    REQUIRE(back.ok());
+    CHECK_FALSE(back.value().doc.overrides.tempoActive);
+    CHECK_FALSE(back.value().doc.overrides.keyActive);
+}
+
+TEST_CASE("REQ-A06: out-of-range or malformed overrides are rejected before anything is replaced") {
+    auto base = fx::toJ(fx::sampleDoc());
+    auto with = [&](const char* key, json v) { auto j = base; j[key] = std::move(v); return showFromJson(j.dump()); };
+    CHECK(with("tempoOverride", {{"bpm", 127.5}, {"source", "manual"}}).ok());
+    CHECK_FALSE(with("tempoOverride", {{"bpm", 0.0}, {"source", "manual"}}).ok());
+    CHECK_FALSE(with("tempoOverride", {{"bpm", 29.9}, {"source", "manual"}}).ok());
+    CHECK_FALSE(with("tempoOverride", {{"bpm", 300.1}, {"source", "manual"}}).ok());
+    CHECK_FALSE(with("tempoOverride", {{"bpm", "fast"}, {"source", "manual"}}).ok());
+    CHECK_FALSE(with("tempoOverride", {{"bpm", 120.0}, {"source", "robot"}}).ok());
+    CHECK_FALSE(with("tempoOverride", json::array()).ok());
+    CHECK(with("keyOverride", {{"tonic", 11}, {"minor", false}}).ok());
+    CHECK_FALSE(with("keyOverride", {{"tonic", 12}, {"minor", false}}).ok());
+    CHECK_FALSE(with("keyOverride", {{"tonic", -1}, {"minor", false}}).ok());
+    CHECK_FALSE(with("keyOverride", {{"tonic", 3}, {"minor", "yes"}}).ok());
+    // the writer refuses a document it could not read back
+    auto doc = fx::sampleDoc();
+    doc.overrides.tempoActive = true; doc.overrides.bpm = 5000.0;
+    CHECK_FALSE(showToJson(doc).ok());
+    doc.overrides.bpm = std::nan("");
+    CHECK_FALSE(showToJson(doc).ok());
+}
