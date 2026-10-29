@@ -1,6 +1,7 @@
 // OS keychain secret store (app-adapters 10, APP-AD-11). Windows: Credential Manager. Linux: libsecret via dlopen
-// (no hard dependency). macOS: NOT IMPLEMENTED (needs Security.framework linked by app/CMakeLists.txt): reports
-// Unavailable. There is deliberately no file or in-memory fallback: without a keychain, put() is refused.
+// (no hard dependency). macOS: Keychain generic passwords through Security.framework (linked by app/CMakeLists.txt); compiled
+// by CI on both macOS architectures but NOT exercised against a real keychain yet. There is deliberately no file or in-memory
+// fallback: without a keychain, put() is refused.
 #include <algorithm>
 #include <cstring>
 #include <mutex>
@@ -18,6 +19,9 @@
  #include <windows.h>
  #include <wincred.h>
  #pragma comment(lib, "advapi32.lib")
+#elif JUCE_MAC
+ #include <CoreFoundation/CoreFoundation.h>
+ #include <Security/Security.h>
 #elif JUCE_LINUX
  #include <dlfcn.h>
 #endif
@@ -120,8 +124,79 @@ struct OsSecretStore::Impl {
         return v;
     }
     ss::Status del(const std::string& ref) { GErr* e = nullptr; clear(&schema, nullptr, &e, "ref", ref.c_str(), nullptr); if (e) errFree(e); return ss::okStatus(); }
+#elif JUCE_MAC
+    // Generic-password items, service "com.circuitdriftlabs.stagesignal", account = secret reference. Items are
+    // WhenUnlockedThisDeviceOnly: not synced to iCloud and unreadable while the Mac is locked.
+    struct CfString {
+        CFStringRef s = nullptr;
+        explicit CfString(const std::string& v)
+            : s(CFStringCreateWithBytes(kCFAllocatorDefault, reinterpret_cast<const UInt8*>(v.data()), static_cast<CFIndex>(v.size()),
+                                        kCFStringEncodingUTF8, false)) {}
+        ~CfString() { if (s) CFRelease(s); }
+        CfString(const CfString&) = delete;
+        CfString& operator=(const CfString&) = delete;
+    };
+    static CFMutableDictionaryRef newDict() {
+        return CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    }
+    static CFMutableDictionaryRef itemQuery(const CfString& account) {
+        CFMutableDictionaryRef q = newDict();
+        CFDictionarySetValue(q, kSecClass, kSecClassGenericPassword);
+        CFDictionarySetValue(q, kSecAttrService, CFSTR("com.circuitdriftlabs.stagesignal"));
+        CFDictionarySetValue(q, kSecAttrAccount, account.s);
+        return q;
+    }
+    bool probe() {
+        CfString account("probe-absent");
+        CFMutableDictionaryRef q = itemQuery(account);
+        CFDictionarySetValue(q, kSecReturnData, kCFBooleanTrue);
+        CFDictionarySetValue(q, kSecMatchLimit, kSecMatchLimitOne);
+        CFTypeRef out = nullptr;
+        const OSStatus st = SecItemCopyMatching(q, &out);
+        if (out) CFRelease(out);
+        CFRelease(q);
+        if (st == errSecSuccess || st == errSecItemNotFound) { backend = "keychain"; return true; }
+        note = "the macOS keychain is not available (status " + std::to_string(static_cast<int>(st)) + ")";
+        return false;
+    }
+    ss::Status put(const std::string& ref, const std::string& v) {
+        CfString account(ref);
+        CFMutableDictionaryRef q = itemQuery(account);
+        CFDataRef data = CFDataCreate(kCFAllocatorDefault, reinterpret_cast<const UInt8*>(v.data()), static_cast<CFIndex>(v.size()));
+        CFMutableDictionaryRef update = newDict();
+        CFDictionarySetValue(update, kSecValueData, data);
+        OSStatus st = SecItemUpdate(q, update);
+        if (st == errSecItemNotFound) {
+            CFDictionarySetValue(q, kSecValueData, data);
+            CFDictionarySetValue(q, kSecAttrAccessible, kSecAttrAccessibleWhenUnlockedThisDeviceOnly);
+            st = SecItemAdd(q, nullptr);
+        }
+        CFRelease(update); CFRelease(data); CFRelease(q);
+        return st == errSecSuccess ? ss::okStatus() : ss::Status(desktop::err(ss::ErrorCategory::PermissionDenied, "keychain write failed"));
+    }
+    ss::Result<std::string> get(const std::string& ref) {
+        CfString account(ref);
+        CFMutableDictionaryRef q = itemQuery(account);
+        CFDictionarySetValue(q, kSecReturnData, kCFBooleanTrue);
+        CFDictionarySetValue(q, kSecMatchLimit, kSecMatchLimitOne);
+        CFTypeRef out = nullptr;
+        const OSStatus st = SecItemCopyMatching(q, &out);
+        CFRelease(q);
+        if (st != errSecSuccess || !out) { if (out) CFRelease(out); return desktop::err(ss::ErrorCategory::InvalidArgument, "secret not found"); }
+        const CFDataRef data = static_cast<CFDataRef>(out);
+        std::string v(reinterpret_cast<const char*>(CFDataGetBytePtr(data)), static_cast<std::size_t>(CFDataGetLength(data)));
+        CFRelease(out);
+        return v;
+    }
+    ss::Status del(const std::string& ref) {
+        CfString account(ref);
+        CFMutableDictionaryRef q = itemQuery(account);
+        SecItemDelete(q);                         // absent is fine: removal is idempotent
+        CFRelease(q);
+        return ss::okStatus();
+    }
 #else
-    bool probe() { note = "macOS keychain adapter not implemented in this build"; return false; }
+    bool probe() { note = "no OS keychain adapter for this platform"; return false; }
     ss::Status put(const std::string&, const std::string&) { return unavailable("no keychain"); }
     ss::Result<std::string> get(const std::string&) { return unavailable("no keychain"); }
     ss::Status del(const std::string&) { return ss::okStatus(); }
