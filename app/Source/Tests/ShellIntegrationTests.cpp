@@ -104,6 +104,35 @@ SelfTestResult stateBlobRoundtrip() {
     return pass("round trip, 6 corruption cases rejected, reference form");
 }
 
+SelfTestResult overridesTravelWithState() {
+    // REQ-A06/A08 end to end through the app: set a tempo and key override, take the plugin state, restore it in a new
+    // controller, and the override is active again without any detector input.
+    std::string blob;
+    {
+        AppController a(makeFakeAdapterSet(false), headlessCfg());
+        if (!a.start().ok()) return fail("start a");
+        ss::Action bpm; bpm.actionId = ss::id(ss::ActionId::SetBpm); bpm.source = ss::ActionSource::Ui; bpm.value = 133.0;
+        ss::Action key; key.actionId = ss::id(ss::ActionId::SetKey); key.source = ss::ActionSource::Ui; key.value = 9 + 12;
+        a.ui().submitAction(bpm); a.ui().submitAction(key);
+        if (!waitFor([&] { a.ui().poll(); auto s = a.ui().snapshot(); return s && s->show.tempoOverride && s->show.keyOverride; }, 4000)) return fail("override not active");
+        auto r = a.getStateBlob();
+        a.stop();
+        if (!r.ok()) return fail("state blob: " + r.error().detail);
+        blob = r.value();
+    }
+    AppController b(makeFakeAdapterSet(false), headlessCfg());
+    auto st = b.setStateBlob(blob.data(), blob.size());
+    if (!st.ok()) return fail("restore: " + st.error().detail);
+    if (!b.start().ok()) return fail("start b");
+    const bool ok = waitFor([&] {
+        b.ui().poll(); auto s = b.ui().snapshot();
+        return s && s->show.tempoOverride && s->show.tempo.bpm > 132.9 && s->show.tempo.bpm < 133.1 && s->show.keyOverride &&
+               s->show.key.tonic == 9 && s->show.key.minor;
+    }, 4000);
+    b.stop();
+    return ok ? pass("133 BPM and A minor are active again after restoring the state") : fail("override was not restored");
+}
+
 SelfTestResult stateBlobNeverArms() {
     AppController c(makeFakeAdapterSet(false), headlessCfg());
     if (!c.start().ok()) return fail("start");
@@ -454,6 +483,7 @@ SelfTestResult callbackNoAlloc() {
 void registerShellIntegrationTests(SelfTestRegistry& r) {
     r.add("shell: state blob roundtrip", stateBlobRoundtrip);
     r.add("shell: state blob never arms", stateBlobNeverArms);
+    r.add("shell: overrides travel with the state", overridesTravelWithState);
     r.add("shell: recovery marker", recoveryMarker);
     r.add("shell: show persistence", showPersistence);
     r.add("shell: secondary mode", secondaryMode);

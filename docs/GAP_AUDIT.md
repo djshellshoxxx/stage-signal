@@ -42,9 +42,9 @@ Test column: doctest case count that names the requirement (`REQ-x: ...`) per `t
 | A03 RMS/peak/bands | **Done** | `audio/test_dsp.cpp` (9) |
 | A04 onsets | **Done** | `audio/test_dsp.cpp` (3) |
 | A05 tempo | **Done (synthetic)** | `audio/test_tempo_key.cpp` (10); synthetic clicks only (L-03) |
-| A06 tap/manual BPM | **Partial** | `audio/test_tempo_key.cpp` (4), `show/test_edit.cpp` (2) cover tap/override. Criterion also needs overrides to survive save/load; `docs/specs/show.md` records that `ShowDocument` has no field for them. |
+| A06 tap/manual BPM | **Done** after `claude/ss-overrides` | Tap/override tests as before, plus the override is now saved with the show (`ShowDocument::overrides`, schema minor 1, validated 30..300 BPM) and applied on load: `show/test_overrides.cpp` (5), `persist/test_show_json.cpp` (3 new), app self-test `shell: overrides travel with the state`. |
 | A07 key | **Done (synthetic)** | `audio/test_tempo_key.cpp` (7); no real-music corpus (L-03) |
-| A08 manual key | **Partial** | `test_tempo_key.cpp` (1), `show/test_edit.cpp` (1). "save/load preserves override" is not met (same missing model/persist field as A06). |
+| A08 manual key | **Done** after `claude/ss-overrides` | As A06: manual key override saved and restored (tonic 0..11, minor flag); tests above. |
 | A09 per-output BPM/key labels | **Partial -> Done in the app after `claude/ss-text-layer`** | Core `router/test_router.cpp` (2) was green, but at audit time the app never used it: `RenderHost` set no compositor policy and no overlay, and nothing handled `ToggleOverlayBpmKey`, so the Setup toggle did nothing. Now `AppController::shellPushAudiencePolicies` feeds the router policy per output to `RenderHost`, which draws the overlay from the effective tempo/key. Tests: app self-tests `audience: REQ-A09 ...` and `audience: ToggleOverlayBpmKey reaches the router` (both fail with the wiring removed). Runtime-only: the toggle is not saved in the show file. |
 | A10 input vs output clip meters | **Done** | `audio/test_dsp.cpp` (2), `dynamics/test_dsp.cpp` (1) |
 
@@ -129,7 +129,7 @@ Test column: doctest case count that names the requirement (`REQ-x: ...`) per `t
 | R06 start failures actionable | **Done** | record (5) |
 | B01 RTMPS/SRT | **Partial** | broadcast (16). Local fake-ffmpeg only (L-07). |
 | B02 explicit start | **Done** | broadcast (9); two-step start in `BroadcastRunner` |
-| B03 secrets never leak | **Partial** | broadcast (8) + diag (10) + persist (3). **Stream key is on the ffmpeg argv** (P-10). OS secret stores: Windows/Linux unverified, **macOS Keychain not implemented** (`SecretStore.cpp:124`), no file fallback. |
+| B03 secrets never leak | **Partial** | broadcast (8) + diag (10) + persist (3). **Stream key is on the ffmpeg argv** (P-10). OS secret stores: Windows/Linux unverified, **macOS Keychain (now implemented on branch `claude/ss-keychain-mac`; CI-compiled only, never run against a real keychain) not implemented** (`SecretStore.cpp:124`), no file fallback. |
 | B04 bounded reconnect | **Done (logic)** | broadcast (15), record (3) |
 | B05 state + stop <1 s | **Done (logic)** | broadcast (7) |
 | B06 network optional | **Done** | broadcast (3) |
@@ -158,9 +158,9 @@ Row-naming drift: NEW-xx and FEAT tests are not all named with their ID, so the 
 | G2 | Packaging and CI | `beta.yml` / VST3: commit `815314a` (VST3 in release matrix) exists on an unmerged branch and conflicts with DEC-11 (VST3 is a non-goal). Not in PR #15. | Info | Owner decision. |
 | G3 | CI | Core tests run once per OS with no ccache, no path filters; app job not run on macOS/Windows per push (beta workflow only). | Partial | See user CI-speed rules; do after features. |
 | G4 | App contract | `docs/specs/app-contract.md` still labels `DesktopAdapters` and `MediaWorker` as STUB. They are real now. Stale doc. | Partial | Edit doc status. |
-| G5 | Camera | No real `ICameraSource` (needs `juce_video`, Windows/macOS only; none on Linux). | Missing | Module `ss-camera`. |
+| G5 | Camera | `JuceCameraSource` exists for Windows/macOS (added with PR #18, CI-compiled, `CameraSelfTests` use fakes); there is none on Linux (JUCE limit). Never run against a real camera. | Partial | Manual pass per OS. |
 | G6 | Serial DMX | `NullSerialDmx` only; no supported adapter (REQ-L06 names none). | Missing | Owner decision on model (Q-03); until then keep Unavailable. |
-| G7 | Secrets | macOS Keychain adapter missing; Windows/Linux unverified. | Missing/Partial | Module `ss-secrets-mac` (needs macOS to test: CI only). |
+| G7 | Secrets | macOS Keychain adapter written (`claude/ss-keychain-mac`) and compile-checked by CI; Windows/Linux/macOS stores all unverified at runtime. | Partial | Run the secrets round trip on each OS (manual). |
 | G8 | Moving media | Video/GIF animation not decoded in the app. | Missing | Module `ss-media-decode` (ffmpeg child process route is already in the spec; no new dependency). |
 | G9 | Audio-loss/idle policy (D09) | Not implemented. | Missing | Module `ss-audio-health` (core `show` + app wiring). |
 | G10 | X04 port scan | Idle-process check exists on Linux (PR #18); armed-state and non-Linux enumeration do not. | Partial | Extend the self-test to the armed lighting state (expect exactly the declared UDP socket) and add Windows/macOS equivalents. |

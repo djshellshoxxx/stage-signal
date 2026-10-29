@@ -51,6 +51,10 @@ Status ShowEngine::validateDocument(const model::ShowDocument& d) {
     if (static_cast<int>(d.mode) > 2) return bad("invalid mode");
     if (d.minDwellSec < 0 || d.minDwellSec > 3600) return bad("minDwellSec out of range");
     if (d.repeatHistory < 0 || d.repeatHistory > static_cast<int>(ss::show::Limits::kRepeatHistoryMax)) return bad("repeatHistory out of range");
+    if (d.overrides.tempoActive &&
+        !(std::isfinite(d.overrides.bpm) && d.overrides.bpm >= model::kMinOverrideBpm && d.overrides.bpm <= model::kMaxOverrideBpm))
+        return bad("tempo override out of range");
+    if (d.overrides.keyActive && (d.overrides.tonic < 0 || d.overrides.tonic > 11)) return bad("key override out of range");
 
     std::set<std::uint32_t> sceneIds;
     for (const auto& s : d.scenes) {

@@ -206,3 +206,11 @@ ss::show::ShowSnapshot s = eng.tick(clock.nowMonotonic(), latestFeatureSnapshot)
 // Action conventions: SceneSelect value=slot 0..7 (fixtureId!=0 = absolute scene id); Resume value 0 continue / 1 advance;
 // SetMode 0 Auto/1 Programmed/2 Hybrid; SetKey 0..23 (+12 = minor); GoToCue value = cue index; SelectOutput value = id or -1.
 ```
+
+## Overrides saved with the show (REQ-A06 / REQ-A08, 28 Oct 2026)
+`ShowDocument::overrides` (`model::TempoKeyOverrides`) holds the operator's tempo override (BPM 30..300, labelled Manual or Tap) and manual key
+(tonic 0..11 plus minor). `ShowEngine::document()` fills it from the live override; loading a document that carries one applies it
+(the tap history is cleared). A document without an override keeps the operator's running override, as before: a load never silently drops it.
+Invalid values (BPM outside 30..300 or not finite, tonic outside 0..11) are rejected by `validateDocument` before any state changes.
+Persistence: JSON keys `tempoOverride {bpm, source: manual|tap}` and `keyOverride {tonic, minor}`, written only when active; schema minor is now 1 and
+older readers report the keys as unknown fields. Tests: `show/test_overrides.cpp`, `persist/test_show_json.cpp`, app `shell: overrides travel with the state`.
