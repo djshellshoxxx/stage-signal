@@ -6,6 +6,7 @@
 // refresh (shellIoTick). `Shell::m` guards every field that both read; nothing here is called from the audio thread.
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -549,14 +550,31 @@ void AppController::shellRegisterCommands() {
 
     // ---- preferences ---------------------------------------------------------------------------------------------
     registerCommandHandler(AppCommandKind::SetPref, [this, reject](const AppCommand& c) {
-        const bool ok = c.text.rfind("ui.", 0) == 0 || c.text.rfind("display.", 0) == 0 || c.text.rfind("wizard.", 0) == 0 || c.text.rfind("benchmark.", 0) == 0 || c.text == "lighting.beatlook" ||
-                        c.text == "keymap.overrides";
-        if (!ok) return reject("That setting cannot be changed here.");
+        const bool general = c.text.rfind("ui.", 0) == 0 || c.text.rfind("display.", 0) == 0 || c.text.rfind("wizard.", 0) == 0 || c.text.rfind("benchmark.", 0) == 0 || c.text == "lighting.beatlook" ||
+                          c.text == "keymap.overrides";
+        // Settings the engine reads have a fixed vocabulary: a wrong value is refused here, not silently turned into a default later.
+        auto number = [&c](double lo, double hi) {
+            char* end = nullptr;
+            const double d = std::strtod(c.text2.c_str(), &end);
+            return !c.text2.empty() && end != c.text2.c_str() && *end == 0 && std::isfinite(d) && d >= lo && d <= hi;
+        };
+        const bool flag = c.text2 == "0" || c.text2 == "1";
+        bool checked = false;                               // true when the key is one of the validated ones below
+        bool valid = true;
+        if (c.text == "audio.losspolicy") { checked = true; valid = c.text2 == "idle" || c.text2 == "continue"; }
+        else if (c.text == "dynamics.truepeak" || c.text == "text.scroll") { checked = true; valid = flag; }
+        else if (c.text == "text.duration") { checked = true; valid = c.text2 == "0" || number(0.1, 3600.0); }
+        else if (c.text == "text.fade") { checked = true; valid = number(0.0, 60.0); }
+        else if (c.text == "text.y") { checked = true; valid = number(0.0, 1.0); }
+        else if (c.text == "text.size") { checked = true; valid = number(0.01, 1.0); }
+        if (!general && !checked) return reject("That setting cannot be changed here.");
+        if (!valid) return reject("That value is not allowed for this setting.");
         {
             std::lock_guard<std::mutex> g(shell_->m);
             auto st = shell_->prefs.set(c.text, c.text2);
             if (!st.ok()) return st;
         }
+        if (c.text == "audio.losspolicy") show_.setAudioLossPolicy(c.text2 == "idle" ? ss::show::AudioLossPolicy::Idle : ss::show::AudioLossPolicy::Continue);
         shellSavePrefs();
         return ss::okStatus();
     });

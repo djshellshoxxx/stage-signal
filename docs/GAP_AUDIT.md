@@ -60,7 +60,7 @@ Test column: doctest case count that names the requirement (`REQ-x: ...`) per `t
 | D06 lost output never covers controls | **Done (logic)** | `router/test_router.cpp` (10); real hot-unplug not tested |
 | D07 resolution/rotation | **Done** | compose (2), render (2), router (1) |
 | D08 blackout | **Done** | `show/test_safety.cpp` (5), compose (2), router (1) |
-| D09 idle screen / audio-loss policy within 2 s | **Missing at audit time; addressed in PR #17** (`claude/ss-audio-health`, draft; becomes Partial: pref-only control, built-in idle frame) | `docs/specs/show.md` stated "Not done"; no audio-health input, no test. |
+| D09 idle screen / audio-loss policy within 2 s | **Missing at audit time; addressed in PR #17** (merged; Setup-tab control added on `claude/ss-ui-controls`; idle frame is the built-in one; policy is an app preference) | `docs/specs/show.md` stated "Not done"; no audio-health input, no test. |
 | D10 keyboard wizard at 800x600 | **Partial** | App self-test `ui-setup: wizard keyboard path`; not run on real screens; no core test. |
 | D11 keyboard/MIDI value actions | **Done** | midi (1), palette (4), show (2) |
 
