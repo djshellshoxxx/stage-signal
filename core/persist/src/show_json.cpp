@@ -103,6 +103,9 @@ Status validateDocument(const model::ShowDocument& d) {
     if (!enumInRange(static_cast<std::size_t>(d.mode), kModes)) return bad("mode");
     if (d.minDwellSec < 0 || d.minDwellSec > 3600) return bad("minDwellSec");
     if (d.repeatHistory < 0 || d.repeatHistory > 64) return bad("repeatHistory");
+    if (d.overrides.tempoActive &&
+        !(std::isfinite(d.overrides.bpm) && d.overrides.bpm >= kMinOverrideBpm && d.overrides.bpm <= kMaxOverrideBpm)) return bad("tempoOverride");
+    if (d.overrides.keyActive && (d.overrides.tonic < 0 || d.overrides.tonic > 11)) return bad("keyOverride");
 
     if (d.scenes.size() > Limits::kMaxScenes) return tooMany("scenes");
     if (d.cues.size() > Limits::kMaxCues) return tooMany("cues");
@@ -292,6 +295,8 @@ Result<std::string> showToJson(const model::ShowDocument& src, const JsonWriteOp
     j["uuid"] = d.uuid; j["name"] = d.name; j["appVersion"] = d.appVersion;
     j["mode"] = enumName(static_cast<std::size_t>(d.mode), kModes);
     j["seed"] = u64s(d.seed); j["minDwellSec"] = d.minDwellSec; j["repeatHistory"] = d.repeatHistory; j["strobingDisabled"] = d.strobingDisabled;
+    if (d.overrides.tempoActive) j["tempoOverride"] = {{"bpm", d.overrides.bpm}, {"source", d.overrides.tempoTap ? "tap" : "manual"}};
+    if (d.overrides.keyActive) j["keyOverride"] = {{"tonic", d.overrides.tonic}, {"minor", d.overrides.keyMinor}};
     j["scenes"] = json::array(); for (const auto& s : d.scenes) j["scenes"].push_back(writeScene(s));
     j["cues"] = json::array(); for (const auto& c : d.cues) j["cues"].push_back(writeCue(c));
     j["outputs"] = json::array();
@@ -510,7 +515,7 @@ Result<ParsedShow> showFromJson(const std::string& text) {
         if (ver.value().major < model::kSchemaMajor)
             return makeError(ErrorCategory::SchemaUnsupported, "show uses an older schema and must be migrated first", Recoverability::OperatorAction);
         auto& w = out.warnings;
-        checkKeys(j, {"format", "schema", "uuid", "name", "appVersion", "mode", "seed", "minDwellSec", "repeatHistory", "strobingDisabled", "scenes", "cues",
+        checkKeys(j, {"format", "schema", "uuid", "name", "appVersion", "mode", "seed", "minDwellSec", "repeatHistory", "strobingDisabled", "tempoOverride", "keyOverride", "scenes", "cues",
                       "outputs", "media", "messages", "midi", "fixtureProfiles", "patches", "lighting", "quality", "journal", "metadata", "migrations"}, "document", w);
         if (ver.value().minor > model::kSchemaMinor && w.size() < PersistLimits::kMaxWarnings)
             w.push_back("file uses a newer minor schema; unknown fields are ignored and will not be written back");
@@ -524,6 +529,20 @@ Result<ParsedShow> showFromJson(const std::string& text) {
         d.minDwellSec = static_cast<int>(getI(j, "minDwellSec", 0, 3600, 8));
         d.repeatHistory = static_cast<int>(getI(j, "repeatHistory", 0, 64, 3));
         d.strobingDisabled = getB(j, "strobingDisabled", false);
+        if (j.contains("tempoOverride")) {
+            const auto& t = j["tempoOverride"];
+            if (!t.is_object() || !t.contains("bpm") || !t["bpm"].is_number() || !t.contains("source") || !t["source"].is_string())
+                return bad("tempoOverride");
+            const std::string src = t["source"].get<std::string>();
+            if (src != "manual" && src != "tap") return bad("tempoOverride source");
+            d.overrides.tempoActive = true; d.overrides.bpm = t["bpm"].get<double>(); d.overrides.tempoTap = src == "tap";
+        }
+        if (j.contains("keyOverride")) {
+            const auto& k = j["keyOverride"];
+            if (!k.is_object() || !k.contains("tonic") || !k["tonic"].is_number_integer() || !k.contains("minor") || !k["minor"].is_boolean())
+                return bad("keyOverride");
+            d.overrides.keyActive = true; d.overrides.tonic = k["tonic"].get<int>(); d.overrides.keyMinor = k["minor"].get<bool>();
+        }
 
         if (auto* a = getArr(j, "scenes", Limits::kMaxScenes, "scenes")) for (const auto& e : *a) {
             const json& o = needObj(e, "scene");

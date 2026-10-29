@@ -292,6 +292,11 @@ struct ShowEngine::Impl {
         for (auto& s : slots_) s = LookSlot{};
         bank_ = 0; selectedOutput_ = kAllOutputs;
         strobeLocked_ = strobeLocked_ || doc_.strobingDisabled;   // loading never re-enables strobing
+        // Overrides saved with the show are applied (REQ-A06/A08). A show without one leaves the operator's running override
+        // alone, as before: a load never silently drops it.
+        if (doc_.overrides.tempoActive) tempoOvr_ = {true, doc_.overrides.bpm, doc_.overrides.tempoTap ? ValueSource::Tap : ValueSource::Manual};
+        if (doc_.overrides.keyActive) keyOvr_ = {true, doc_.overrides.tonic, doc_.overrides.keyMinor};
+        taps_.clear();
         inbox_.clear(); pending_.clear();
         ++revision_; dirty_ = false;
         emit(EventKind::DocumentLoaded, kAllOutputs, 0, -1, now,
@@ -1309,6 +1314,11 @@ model::ShowDocument ShowEngine::document() const {
     model::ShowDocument d = impl_->doc_;
     d.mode = impl_->mode_;
     d.strobingDisabled = impl_->strobeLocked_;
+    d.overrides = model::TempoKeyOverrides{};
+    if (impl_->tempoOvr_.active) {
+        d.overrides.tempoActive = true; d.overrides.bpm = impl_->tempoOvr_.bpm; d.overrides.tempoTap = impl_->tempoOvr_.src == ValueSource::Tap;
+    }
+    if (impl_->keyOvr_.active) { d.overrides.keyActive = true; d.overrides.tonic = impl_->keyOvr_.tonic; d.overrides.keyMinor = impl_->keyOvr_.minor; }
     return d;
 }
 
