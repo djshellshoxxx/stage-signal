@@ -42,9 +42,9 @@ Test column: doctest case count that names the requirement (`REQ-x: ...`) per `t
 | A03 RMS/peak/bands | **Done** | `audio/test_dsp.cpp` (9) |
 | A04 onsets | **Done** | `audio/test_dsp.cpp` (3) |
 | A05 tempo | **Done (synthetic)** | `audio/test_tempo_key.cpp` (10); synthetic clicks only (L-03) |
-| A06 tap/manual BPM | **Partial** | `audio/test_tempo_key.cpp` (4), `show/test_edit.cpp` (2) cover tap/override. Criterion also needs overrides to survive save/load; `docs/specs/show.md` records that `ShowDocument` has no field for them. |
+| A06 tap/manual BPM | **Done** after `claude/ss-overrides` | Tap/override tests as before, plus the override is now saved with the show (`ShowDocument::overrides`, schema minor 1, validated 30..300 BPM) and applied on load: `show/test_overrides.cpp` (5), `persist/test_show_json.cpp` (3 new), app self-test `shell: overrides travel with the state`. |
 | A07 key | **Done (synthetic)** | `audio/test_tempo_key.cpp` (7); no real-music corpus (L-03) |
-| A08 manual key | **Partial** | `test_tempo_key.cpp` (1), `show/test_edit.cpp` (1). "save/load preserves override" is not met (same missing model/persist field as A06). |
+| A08 manual key | **Done** after `claude/ss-overrides` | As A06: manual key override saved and restored (tonic 0..11, minor flag); tests above. |
 | A09 per-output BPM/key labels | **Partial -> Done in the app after `claude/ss-text-layer`** | Core `router/test_router.cpp` (2) was green, but at audit time the app never used it: `RenderHost` set no compositor policy and no overlay, and nothing handled `ToggleOverlayBpmKey`, so the Setup toggle did nothing. Now `AppController::shellPushAudiencePolicies` feeds the router policy per output to `RenderHost`, which draws the overlay from the effective tempo/key. Tests: app self-tests `audience: REQ-A09 ...` and `audience: ToggleOverlayBpmKey reaches the router` (both fail with the wiring removed). Runtime-only: the toggle is not saved in the show file. |
 | A10 input vs output clip meters | **Done** | `audio/test_dsp.cpp` (2), `dynamics/test_dsp.cpp` (1) |
 
