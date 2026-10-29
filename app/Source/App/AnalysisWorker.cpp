@@ -9,6 +9,7 @@ bool AnalysisWorker::ensurePrepared(const AudioBlockView& v) {
     if (!analyzer_.prepare(v.rateHz, v.channels).ok()) { havePrepared_ = false; return false; }
     ss::dynamics::DynamicsConfig cfg;
     cfg.sampleRateHz = v.rateHz; cfg.inChannels = v.channels; cfg.monoToStereo = false;
+    cfg.truePeakLimiter = truePeakLimiter_.load(std::memory_order_relaxed);
     auto info = dyn_.prepare(cfg);
     if (!info.ok()) { havePrepared_ = false; return false; }
     outCh_ = info.value().outChannels;

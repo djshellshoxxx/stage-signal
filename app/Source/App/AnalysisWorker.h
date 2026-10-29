@@ -33,6 +33,9 @@ public:
     // Any thread.
     bool features(ss::FeatureSnapshot& out) const { return features_.read(out); }
     bool visual(ss::render::AudioVisualInput& out) const { return visual_.read(out); }
+    // Any thread, before audio starts (REQ-R02). Opt-in: adds the detector latency and about 4x the limiter's CPU; see
+    // docs/specs/dynamics.md. Takes effect when the engine is next prepared (device or format change, or restart).
+    void setTruePeakLimiter(bool on) { truePeakLimiter_.store(on, std::memory_order_relaxed); }
     bool signalAlive(ss::Ns now) const {
         const ss::Ns last = lastBlockNs_.load(std::memory_order_relaxed);
         return last != 0 && now - last < 500 * ss::kNsPerMs;
@@ -59,6 +62,7 @@ private:
     ss::dynamics::DynamicsProcessor dyn_;
     std::vector<IProcessedAudioConsumer*> consumers_;
     std::vector<float> out_;                       // preallocated at prepare
+    std::atomic<bool> truePeakLimiter_{false};     // read at the next prepare only (a running session keeps its engine)
     std::uint32_t preparedRate_ = 0, preparedCh_ = 0, outCh_ = 0;
     Generation preparedGen_ = 0;
     bool havePrepared_ = false;
