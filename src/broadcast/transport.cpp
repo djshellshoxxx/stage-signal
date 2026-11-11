@@ -1,5 +1,6 @@
 #include "broadcast/transport.h"
 #include "broadcast/rtp.h"
+#include "broadcast/rtmp.h"
 #include "broadcast/redact.h"
 namespace ss {
 
@@ -49,9 +50,9 @@ void FaultyTransport::breakLink(TransportErrorClass c, const std::string& d) {
 // ---------------- TransportFactory ----------------
 std::string TransportFactory::unsupportedReason(BroadcastProtocol p) {
   switch (p) {
-    case BroadcastProtocol::RTMPS: return "RTMPS is not available in this build: it needs a qualified media worker (FFmpeg built with TLS and H.264/AAC encoders, run as a separate replaceable process) that is not bundled. No TLS or RTMP stack is implemented in the portable core, and certificate validation will not be faked.";
-    case BroadcastProtocol::RTMP: return "RTMP is not available in this build: it needs a qualified media worker (FFmpeg with H.264/AAC encoders) that is not bundled.";
-    case BroadcastProtocol::SRT: return "SRT is not available in this build: it needs a qualified media worker (FFmpeg built with libsrt, MPEG-TS H.264/AAC, caller mode) that is not bundled.";
+    case BroadcastProtocol::RTMPS: return "RTMPS is not available: no TCP/TLS stream adapter that verifies the server certificate and host name is installed (the Windows build registers one; a qualified media worker can also provide RTMPS). Certificate validation will not be faked or skipped.";
+    case BroadcastProtocol::RTMP: return "RTMP is not available: no TCP stream adapter is installed (the Windows build registers one) and no media worker is registered.";
+    case BroadcastProtocol::SRT: return "no SRT stack; requires qualified media worker (FFmpeg built with libsrt, MPEG-TS H.264/AAC, caller mode); none is bundled.";
     case BroadcastProtocol::RTP: return "RTP needs a UDP socket adapter (src/platform/windows registers one); none is installed.";
   }
   return "unsupported";
@@ -63,6 +64,15 @@ Status TransportFactory::create(const BroadcastSettings& s, std::unique_ptr<ITra
   if (p == BroadcastProtocol::RTP) {
     if (!sock_) return Status::Fail(Err::UnsupportedCapability, unsupportedReason(p));
     out = makeRtpTransport(sock_, clock_ ? clock_ : &systemClock(), 0); return Status::Ok();
+  }
+  if (p == BroadcastProtocol::RTMP || p == BroadcastProtocol::RTMPS) {
+    if (!stream_) return Status::Fail(Err::UnsupportedCapability, unsupportedReason(p), false);
+    std::unique_ptr<IByteStream> bs = stream_();
+    if (!bs) return Status::Fail(Err::UnsupportedCapability, "the network stream adapter could not be created", false);
+    bool tls = p == BroadcastProtocol::RTMPS;
+    if (tls && !bs->supportsTlsVerification())
+      return Status::Fail(Err::UnsupportedCapability, "CertificateRequired: RTMPS refused because the installed network stream cannot validate the server certificate chain and host name. It will not connect unverified; use a verifying TLS adapter or a qualified media worker.", false);
+    out = makeRtmpTransport(std::move(bs), tls); return Status::Ok();
   }
   return Status::Fail(Err::UnsupportedCapability, unsupportedReason(p), false);
 }

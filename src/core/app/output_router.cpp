@@ -38,6 +38,8 @@ std::string OutputRouter::controlsDisplay() const { std::lock_guard<std::mutex> 
 void OutputRouter::updateDisplays(const std::vector<DisplayInfo>& cur) {
   std::lock_guard<std::mutex> l(m_);
   displays_ = cur; haveDisplays_ = true;
+  const std::string sig = topoSigLocked();       // a confirmation is only valid for the topology it was given in; it never revives
+  for (auto it = confirmed_.begin(); it != confirmed_.end();) { if (it->second.topoSig != sig) it = confirmed_.erase(it); else ++it; }
   rebuildLocked();
 }
 std::vector<DisplayInfo> OutputRouter::displays() const { std::lock_guard<std::mutex> l(m_); return displays_; }

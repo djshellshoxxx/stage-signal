@@ -66,7 +66,7 @@ bool amfDecode(const uint8_t* d, size_t n, size_t& pos, Value& out, int depth = 
 enum MsgType : uint8_t { kSetChunkSize = 1, kAbort = 2, kAck = 3, kUserControl = 4, kWindowAck = 5, kPeerBandwidth = 6,
                          kAudio = 8, kVideo = 9, kDataAmf3 = 15, kCmdAmf3 = 17, kData = 18, kCmd = 20 };
 struct Message { uint32_t csid = 0, ts = 0, sid = 0; uint8_t type = 0; Bytes payload; };
-constexpr size_t kDefaultChunkSize = 128, kMaxChunkSize = 1u << 20, kMaxIncomingMessage = 2u << 20;
+constexpr size_t kDefaultChunkSize = 128, kMaxChunkSize = 1u << 20, kMaxIncomingMessage = 2u << 20, kMaxBufferedIncoming = 8u << 20;
 
 class ChunkWriter {
  public:
@@ -77,7 +77,7 @@ class ChunkWriter {
   void write(uint32_t csid, uint8_t type, uint32_t sid, uint32_t ts, const uint8_t* payload, size_t n, Bytes& out);
   struct Stats { uint64_t fmt[4] = {0, 0, 0, 0}; } stats;
  private:
-  struct Cs { bool valid = false; uint32_t ts = 0, delta = 0, len = 0, sid = 0; uint8_t type = 0; };
+  struct Cs { bool valid = false, deltaValid_ = false; uint32_t ts = 0, delta = 0, len = 0, sid = 0; uint8_t type = 0; };
   size_t chunk_ = kDefaultChunkSize; std::vector<Cs> cs_;
 };
 class ChunkReader {
@@ -90,8 +90,8 @@ class ChunkReader {
   bool feed(const uint8_t* d, size_t n, const std::function<void(Message&)>& on);
   std::string error;
  private:
-  struct Cs { bool have = false, ext = false; uint32_t ts = 0, delta = 0, len = 0, sid = 0; uint8_t type = 0; Bytes buf; };
-  size_t chunk_ = kDefaultChunkSize; Bytes in_; size_t pos_ = 0; std::vector<std::pair<uint32_t, Cs>> cs_;
+  struct Cs { bool have = false, inMsg = false, ext = false; uint32_t ts = 0, delta = 0, len = 0, sid = 0; uint8_t type = 0; Bytes buf; };
+  size_t chunk_ = kDefaultChunkSize; Bytes in_; size_t pos_ = 0, buffered_ = 0; std::vector<std::pair<uint32_t, Cs>> cs_;
   Cs& cs(uint32_t id);
 };
 
@@ -113,8 +113,8 @@ struct RtmpConfig {
   std::string flashVer = "FMLE/3.0 (compatible; StageSignal)";
 };
 struct RtmpCounters {
-  uint64_t droppedPackets = 0, droppedKeyframeBlocked = 0, messagesSent = 0, acksSent = 0, pingsAnswered = 0, serverChunkSizeChanges = 0;
-  uint64_t queueHighWater = 0, bytesWire = 0, bytesReceived = 0; bool s2Matched = true;
+  uint64_t droppedPackets = 0, droppedKeyframeBlocked = 0, messagesSent = 0, acksSent = 0, pingsAnswered = 0, serverChunkSizeChanges = 0, unsupportedPackets = 0;
+  uint64_t queueHighWater = 0, queueDepth = 0, bytesWire = 0, bytesReceived = 0; bool s2Matched = true;
 };
 class RtmpTransport : public ITransport {
  public:

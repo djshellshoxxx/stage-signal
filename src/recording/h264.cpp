@@ -44,13 +44,16 @@ bool parseAvcC(const uint8_t* d, size_t n, Bytes& sps, Bytes& pps, int* lenSize)
   if (lenSize) *lenSize = (d[4] & 3) + 1;
   size_t p = 5; unsigned ns = d[p++] & 31;
   for (unsigned i = 0; i < ns; ++i) {
-    if (p + 2 > n) return false; size_t l = ((size_t)d[p] << 8) | d[p + 1]; p += 2; if (p + l > n) return false;
+    if (p + 2 > n) return false;
+    size_t l = ((size_t)d[p] << 8) | d[p + 1]; p += 2; if (p + l > n) return false;
     if (i == 0) sps.assign(d + p, d + p + l);
     p += l;
   }
-  if (p >= n) return false; unsigned np = d[p++];
+  if (p >= n) return false;
+  unsigned np = d[p++];
   for (unsigned i = 0; i < np; ++i) {
-    if (p + 2 > n) return false; size_t l = ((size_t)d[p] << 8) | d[p + 1]; p += 2; if (p + l > n) return false;
+    if (p + 2 > n) return false;
+    size_t l = ((size_t)d[p] << 8) | d[p + 1]; p += 2; if (p + l > n) return false;
     if (i == 0) pps.assign(d + p, d + p + l);
     p += l;
   }
@@ -73,7 +76,8 @@ Bytes audioSpecificConfig(uint32_t rate, uint32_t ch, int ot) {
 bool parseAudioSpecificConfig(const uint8_t* d, size_t n, int& ot, uint32_t& rate, uint32_t& ch) {
   if (n < 2) return false;
   uint16_t v = (uint16_t)((d[0] << 8) | d[1]); ot = v >> 11; int idx = (v >> 7) & 15; ch = (v >> 3) & 15;
-  if (idx > 12) return false; rate = kRates[idx]; return ot != 0 && ch != 0;
+  if (idx > 12) return false;
+  rate = kRates[idx]; return ot != 0 && ch != 0;
 }
 bool stripAdts(const uint8_t* d, size_t n, const uint8_t*& p, size_t& len) {
   if (n < 7 || d[0] != 0xFF || (d[1] & 0xF6) != 0xF0) return false;

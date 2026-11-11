@@ -1,7 +1,10 @@
 // MOD-12 transport seam. HONEST SCOPE:
-//   * No RTMP/RTMPS/SRT protocol stack exists in this build. TransportFactory returns Err::UnsupportedCapability with the
-//     reason until a qualified media worker (e.g. FFmpeg built with libsrt + TLS, separate process, replaceable LGPL
-//     build) registers a factory with registerMediaWorker(). Nothing here pretends to speak those protocols.
+//   * RTMP / RTMPS: a portable publish client exists (broadcast/rtmp.h) over an abstract IByteStream. It is created only when a byte
+//     stream factory is installed with setByteStreamFactory() (Windows: win::makeTcpStream, Schannel TLS). It is verified against an
+//     in-process mock server ONLY, not qualified against live receivers. RTMPS is refused (never downgraded) unless the stream reports
+//     certificate + host name verification support.
+//   * SRT: no stack. TransportFactory returns Err::UnsupportedCapability ("no SRT stack; requires qualified media worker") until a
+//     qualified media worker (e.g. FFmpeg built with libsrt, separate process) registers a factory with registerMediaWorker().
 //   * Real and working: plain RTP/UDP sender (MJPEG RFC 2435 + L16 RFC 3551 + RTCP SR), see broadcast/rtp.h, behind IUdpSocket.
 //   * LoopbackTransport / FaultyTransport are TEST DOUBLES (no sockets, no network).
 // The stream secret is handed to ITransport::connect() inside TransportParams only (memory, never a URL / argv / log).
@@ -85,21 +88,25 @@ class FaultyTransport : public ITransport {
 using LoopbackTransport = FaultyTransport;   // an unscripted FaultyTransport is a loopback
 
 struct IUdpSocket;
+struct IByteStream;
 class TransportFactory {
  public:
   using MakeTransport = std::function<std::unique_ptr<ITransport>()>;
   using MakeSocket = std::function<std::unique_ptr<IUdpSocket>()>;
+  using MakeStream = std::function<std::unique_ptr<IByteStream>()>;
   // A qualified media worker adapter (FFmpeg w/ libsrt+TLS, separate process) registers per protocol.
   void registerMediaWorker(BroadcastProtocol p, MakeTransport f) { workers_[(int)p] = std::move(f); }
   // Windows UDP socket adapter (src/platform/windows) registers here; tests register FakeUdpSocket.
   void setUdpSocketFactory(MakeSocket f) { sock_ = std::move(f); }
+  // TCP(+TLS) byte stream adapter for the built-in RTMP/RTMPS client (src/platform/windows registers win::makeTcpStream here).
+  void setByteStreamFactory(MakeStream f) { stream_ = std::move(f); }
   // Test hook: force a specific transport (e.g. FaultyTransport) for any protocol.
   void setTestOverride(MakeTransport f) { override_ = std::move(f); }
   void setClock(IClock* c) { clock_ = c; }       // clock used by the RTP sender (RTCP NTP mapping); default systemClock()
   Status create(const BroadcastSettings& s, std::unique_ptr<ITransport>& out) const;
   static std::string unsupportedReason(BroadcastProtocol p);
  private:
-  MakeTransport workers_[4]; MakeSocket sock_; MakeTransport override_; IClock* clock_ = nullptr;
+  MakeTransport workers_[4]; MakeSocket sock_; MakeTransport override_; MakeStream stream_; IClock* clock_ = nullptr;
 };
 
 } // namespace ss
