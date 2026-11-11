@@ -102,6 +102,7 @@ void postNotice(const std::string& text, bool isError);
 // Submits an action; rejection reasons are shown in the message bar.
 void act(ActionId id, double value = 0, int target = -1, ActionSource src = ActionSource::UI);
 constexpr UINT WM_SS_NOTICE = WM_APP + 41;
+constexpr UINT WM_SS_KEY = WM_APP + 42;         // key forwarded from an audience window (never focused) to the dispatcher
 std::string takeNotice(bool* isError);
 
 // Waits for a future with a bounded timeout on the UI thread.
