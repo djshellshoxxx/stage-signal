@@ -124,6 +124,12 @@ HWND Page::button(const std::string& t, int x, int y, int w, int h, std::functio
   tip(tt_, c, tipText.empty() ? t : tipText);
   return track(c, x, y, w, h);
 }
+HWND Page::obutton(const std::string& t, int x, int y, int w, int h, std::function<void()> cb, const std::string& tipText) {
+  int id = newId(); HWND c = mkCtl(hwnd, L"BUTTON", t, BS_OWNERDRAW | WS_TABSTOP, S(x), S(y), S(w), S(h), id);
+  onCmd(id, [cb](int code) { if (code == BN_CLICKED && cb) cb(); });
+  tip(tt_, c, tipText.empty() ? t : tipText);
+  return track(c, x, y, w, h);
+}
 HWND Page::check(const std::string& t, int x, int y, int w, std::function<void(bool)> cb) {
   int id = newId(); HWND c = mkCtl(hwnd, L"BUTTON", t, BS_AUTOCHECKBOX | WS_TABSTOP, S(x), S(y), S(w), S(24), id);
   onCmd(id, [c, cb](int code) { if (code == BN_CLICKED && cb) cb(SendMessageW(c, BM_GETCHECK, 0, 0) == BST_CHECKED); });

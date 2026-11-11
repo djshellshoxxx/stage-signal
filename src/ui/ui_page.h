@@ -33,6 +33,7 @@ class Page {
   HWND label(const std::string& t, int x, int y, int w, int h = 20, bool bold = false);
   int heading(const std::string& t, int y);   // bold caption + separator; returns next y
   HWND button(const std::string& t, int x, int y, int w, int h, std::function<void()> cb, const std::string& tipText = std::string());
+  HWND obutton(const std::string& t, int x, int y, int w, int h, std::function<void()> cb, const std::string& tipText = std::string());  // owner-drawn state button
   HWND check(const std::string& t, int x, int y, int w, std::function<void(bool)> cb);
   HWND radio(const std::string& t, int x, int y, int w, bool first, std::function<void()> cb);
   HWND edit(const std::string& t, int x, int y, int w, int h = 26, DWORD extra = 0, std::function<void()> onChange = nullptr);
