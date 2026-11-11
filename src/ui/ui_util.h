@@ -92,6 +92,8 @@ struct UiApp {
   MainWindow* main = nullptr;
   std::string dataDir, showPath;                // showPath: current show file ("" = unsaved)
   std::string version = "0.1.0";
+  const EncoderRegistry* encoders = nullptr;                          // for honest codec availability text
+  std::function<std::string(BroadcastProtocol)> protocolIssue;        // "" = available, else the reason it is not
 };
 extern UiApp A;
 
