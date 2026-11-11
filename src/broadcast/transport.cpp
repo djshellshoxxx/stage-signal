@@ -52,7 +52,7 @@ std::string TransportFactory::unsupportedReason(BroadcastProtocol p) {
   switch (p) {
     case BroadcastProtocol::RTMPS: return "RTMPS is not available: no TCP/TLS stream adapter that verifies the server certificate and host name is installed (the Windows build registers one; a qualified media worker can also provide RTMPS). Certificate validation will not be faked or skipped.";
     case BroadcastProtocol::RTMP: return "RTMP is not available: no TCP stream adapter is installed (the Windows build registers one) and no media worker is registered.";
-    case BroadcastProtocol::SRT: return "no SRT stack; requires qualified media worker (FFmpeg built with libsrt, MPEG-TS H.264/AAC, caller mode); none is bundled.";
+    case BroadcastProtocol::SRT: return "no SRT stack; requires qualified media worker (FFmpeg built with libsrt, MPEG-TS H.264/AAC, caller mode); not available in this build (not bundled).";
     case BroadcastProtocol::RTP: return "RTP needs a UDP socket adapter (src/platform/windows registers one); none is installed.";
   }
   return "unsupported";

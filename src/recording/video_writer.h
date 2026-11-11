@@ -7,7 +7,7 @@
 //            patched, so a crash leaves a streaming-valid file that tolerant readers can scan (no Cues in that case).
 //   * Segmentation: 15 min or size budget, whichever first. Audio splits at the exact sample (contiguous across segments,
 //            no loss/overlap, enforced); video rolls at the next key frame. Journal lists active/completed segments.
-//   * H.264 is not produced here: see recording/video_encoder.h (EncoderRegistry reports EncoderUnavailable honestly).
+//   * H.264 is not produced here (see recording/video_encoder.h); MKV can STORE H.264 from an encoder (V_MPEG4/ISO/AVC + avcC); AVI refuses it.
 #pragma once
 #include "recording/io.h"
 #include "recording/journal.h"
@@ -23,7 +23,8 @@ struct MediaWriterConfig {
   std::string dir, base;                         // base from rec::baseName(); "_0000.<ext>" appended per segment
   bool hasAudio = true;
   uint32_t audioRate = 48000, audioChannels = 2; uint16_t audioBits = 24;   // 16 or 24
-  VideoCodec codec = VideoCodec::MJPEG;          // only MJPEG is writable here (FourCC 'MJPG' / V_MJPEG)
+  VideoCodec codec = VideoCodec::MJPEG;          // MJPEG (AVI+MKV) or H.264 (MKV only: V_MPEG4/ISO/AVC, Annex B in -> length-prefixed blocks)
+  std::vector<uint8_t> codecPrivate;             // H.264: avcC (IVideoEncoder::codecPrivate()); required
   int width = 800, height = 600, fpsNum = 25, fpsDen = 1;
   Ns maxSegmentNs = 15ll * 60 * kNsPerSec;
   uint64_t maxSegmentBytes = 1536ull << 20;      // AVI clamps to 1.9 GiB, MKV to 3 GiB
@@ -57,6 +58,7 @@ class MediaWriter {
  protected:
   MediaWriter(IFileSystem& fs, SegmentJournal* j) : fs_(fs), j_(j) {}
   virtual const char* ext() const = 0;
+  virtual bool storesH264() const { return false; }
   virtual bool fixedFps() const = 0;
   virtual uint64_t hardLimitBytes() const = 0;                 // absolute container limit for a segment
   virtual Status beginSegment(IFileSink& sink, const SegmentInfo& seg) = 0;

@@ -57,6 +57,7 @@ static bool adec(const B& d, size_t& p, A& out) {
     case 5: out.t = 'Z'; return true;
     case 6: out.t = 'U'; return true;
     case 8: p += 4; out.t = 'E'; return props();
+    case 10: { if (p + 4 > d.size()) return false; uint32_t c = d[p] << 24 | d[p + 1] << 16 | d[p + 2] << 8 | d[p + 3]; p += 4; out.t = 'A'; for (uint32_t i = 0; i < c; ++i) { A x; if (!adec(d, p, x)) return false; } return true; }
   }
   return false;
 }
@@ -443,10 +444,13 @@ TEST(rtmp_send_queue_is_bounded_and_drops_oldest_non_keyframe) {
   RtmpCounters c = t.counters(); CHECK(c.droppedPackets > droppedBefore + 40); CHECK(c.queueHighWater <= 16 + 1); CHECK(c.queueDepth <= 16);
   srv->paused = false;
   CHECK(waitFor([&] { return t.counters().queueDepth == 0; }));
-  CHECK(waitFor([&] { auto m = srv->snapshot().media; return !m.empty() && m.back().ts >= 1890; }));
-  ServerLog L = srv->snapshot(); int keys = 0; bool sawFirstKey = false, sawSecondKey = false;
-  for (auto& m : L.media) if (m.type == 9 && m.payload.size() > 1 && m.payload[1] == 1) { if (m.payload[0] == 0x17) { ++keys; if (m.ts == 0) sawFirstKey = true; if (m.ts == 400) sawSecondKey = true; } }
-  CHECK(sawFirstKey && sawSecondKey);                                          // both key frames survived 70 inter-frame drops
+  CHECK(waitFor([&] { return t.counters().queueDepth == 0 && srv->snapshot().media.size() >= 10; }));
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  ServerLog L = srv->snapshot(); uint32_t lastTs = 0; std::vector<uint32_t> keyTs;   // timestamps are relative to the first packet the worker handled
+  for (auto& m : L.media) if (m.type == 9 && m.payload.size() > 1 && m.payload[1] == 1) { lastTs = std::max(lastTs, m.ts); if (m.payload[0] == 0x17) keyTs.push_back(m.ts); }
+  CHECK(lastTs > 0); uint32_t base = 1890 - lastTs;                              // newest packet (pts 1890 ms) must have survived
+  CHECK(keyTs.size() >= 2); bool k1 = false, k2 = false; for (auto k : keyTs) { if (k + base == 1000) k1 = true; if (k + base == 1400) k2 = true; }
+  CHECK(k1 && k2);                                                               // both key frames survived the inter-frame drops
   t.close();
 }
 

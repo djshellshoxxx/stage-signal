@@ -3,6 +3,12 @@
 // binary (newer APIs resolved at runtime via GetProcAddress/LoadLibrary and reported as capability errors).
 #pragma once
 #include "core/ports.h"
+#include "broadcast/rtmp.h"
+#include "broadcast/rtp.h"
+#include "recording/io.h"
+#include "recording/video_encoder.h"
+#include "recording/audio_encoder.h"
+#include "lighting/usb_dmx.h"
 #include <memory>
 #include <string>
 #include <vector>
@@ -52,8 +58,42 @@ struct IUdpSocketW {
   virtual int recvFrom(uint8_t* buf, size_t cap, int timeoutMs, std::string* fromHost, uint16_t* fromPort) = 0;
   virtual uint16_t localPort() const = 0;
   virtual void close() = 0;
+  virtual Status setTtl(int ttl) { (void)ttl; return Status::Ok(); }   // IP_TTL + IP_MULTICAST_TTL (additive; default no-op)
 };
 std::unique_ptr<IUdpSocketW> makeUdpSocket();
+
+// Adapts IUdpSocketW to the broadcast IUdpSocket (RTP sender). open(nic, ttl) binds an ephemeral port on nic and sets the TTL.
+std::unique_ptr<IUdpSocket> adaptUdpSocket(std::unique_ptr<IUdpSocketW> w);
+std::unique_ptr<IUdpSocket> makeBroadcastUdpSocket();      // = adaptUdpSocket(makeUdpSocket())
+
+// TCP byte stream for the portable RTMP/RTMPS client (broadcast/rtmp.h). Winsock; TLS via Schannel (secur32/crypt32 bound at run
+// time, so the exe still starts on old Windows). TLS = TLS 1.2/1.1 client with SNI; the server chain AND host name are validated
+// with CertGetCertificateChain + CertVerifyCertificateChainPolicy(CERT_CHAIN_POLICY_SSL); there is NO override. Revocation is not
+// checked. supportsTlsVerification() is false when Schannel/crypt32 entry points are missing => RTMPS is refused by the factory.
+// Register: factory.setByteStreamFactory([]{ return ss::win::makeTcpStream(); });
+std::unique_ptr<IByteStream> makeTcpStream();
+bool schannelTlsAvailable();
+
+// ---- Recording disk space (IDiskInfo, spec §12) --------------------------------------------
+// GetDiskFreeSpaceExW on the nearest existing parent of the path (per-user quota aware).
+std::unique_ptr<IDiskInfo> makeDiskInfo();
+
+// ---- USB DMX serial (REQ-L06). NOT hardware-qualified: no adapter is listed as supported until it has recorded results. ----
+struct SerialPortInfo { std::string portName; std::string friendlyName; };   // "COM3", "USB Serial Port (COM3)"
+std::vector<SerialPortInfo> listSerialPorts();                                // registry SERIALCOMM + SetupAPI-free friendly names
+// CreateFile("\\.\COMn", overlapped), 250000 baud 8N2 (DMX512 line settings), write with 1 s timeout.
+std::unique_ptr<IUsbSerialLink> makeUsbSerialLink();
+// Named adapters whose protocol is implemented (label: "protocol implemented, not hardware-qualified"). Empty qualified list stays empty.
+std::vector<UsbAdapterInfo> namedUsbAdapters();
+
+// ---- Media Foundation encoders (loaded at run time; absent => honest EncoderUnavailable) -------------------------------------
+// Registers 'h264-mf' (CLSID_CMSH264EncoderMFT, software, baseline, CBR, 2 s keyframes, low latency; qualified=false) into the registry.
+// RGB32 frames are converted to NV12 in scalar code. Packets are Annex B; codecPrivate() = avcC.
+void registerWindowsEncoders(EncoderRegistry& r);
+// AAC-LC (CLSID_AACMFTEncoder, raw payload) producing AudioSpecificConfig for RTMP; nullptr-equivalent status via open().
+std::unique_ptr<IAudioEncoder> makeAacEncoder();
+EncoderAvailability h264EncoderAvailability();                // probes by creating the MFT once
+EncoderAvailability aacEncoderAvailability();
 
 // ---- Secrets (REQ-B03) --------------------------------------------------------------------
 // DPAPI per-user; files under %LOCALAPPDATA%\StageSignal\secrets\<hash(ref)>.bin. Never logs/echoes secrets.

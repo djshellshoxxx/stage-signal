@@ -1,5 +1,6 @@
 #include "recording/video_writer.h"
 #include "recording/naming.h"
+#include "recording/h264.h"
 #include <algorithm>
 #include <cstring>
 namespace ss {
@@ -12,7 +13,10 @@ MediaWriter::~MediaWriter() {}   // derived destructors call close() (no virtual
 
 Status MediaWriter::open(const MediaWriterConfig& c) {
   if (opened_) return Status::Fail(Err::InvalidArgument, "writer already open");
-  if (c.codec != VideoCodec::MJPEG) return Status::Fail(Err::UnsupportedCapability, std::string("container writer cannot store ") + codecName(c.codec) + "; only MJPEG is writable in this build");
+  if (c.codec == VideoCodec::H264) {
+    if (!storesH264()) return Status::Fail(Err::UnsupportedCapability, std::string("the ") + ext() + " writer cannot store H.264 (use MKV)");
+    Bytes s_, p_; if (!h264::parseAvcC(c.codecPrivate.data(), c.codecPrivate.size(), s_, p_)) return Status::Fail(Err::InvalidArgument, "H.264 storage needs a valid avcC (SPS+PPS) from the encoder");
+  } else if (c.codec != VideoCodec::MJPEG) return Status::Fail(Err::UnsupportedCapability, std::string("container writer cannot store ") + codecName(c.codec));
   if (c.width < 16 || c.height < 16 || c.fpsNum <= 0 || c.fpsDen <= 0) return Status::Fail(Err::InvalidArgument, "invalid video geometry/frame rate");
   if (c.hasAudio && (c.audioChannels < 1 || c.audioChannels > 2 || (c.audioBits != 16 && c.audioBits != 24) || c.audioRate < 8000))
     return Status::Fail(Err::InvalidArgument, "unsupported audio format (1-2 channels, 16/24-bit)");
@@ -265,6 +269,7 @@ class MkvWriter : public MediaWriter {
   ~MkvWriter() override { close(); }
  protected:
   const char* ext() const override { return "mkv"; }
+  bool storesH264() const override { return true; }
   bool fixedFps() const override { return false; }
   uint64_t hardLimitBytes() const override { return 3ull << 30; }
   uint32_t vTrack() const { return 1; }
@@ -283,7 +288,7 @@ class MkvWriter : public MediaWriter {
     // Tracks
     Bytes tracks;
     { Bytes t; cat(t, eUint(0xD7, vTrack())); cat(t, eUint(0x73C5, 1)); cat(t, eUint(0x83, 1)); cat(t, eUint(0x9C, 0));
-      cat(t, eStr(0x86, "V_MJPEG")); cat(t, eUint(0x23E383, (uint64_t)(1e9 * cfg_.fpsDen / cfg_.fpsNum + 0.5)));
+      cat(t, eStr(0x86, cfg_.codec == VideoCodec::H264 ? "V_MPEG4/ISO/AVC" : "V_MJPEG")); if (cfg_.codec == VideoCodec::H264) cat(t, eElem(0x63A2, cfg_.codecPrivate)); cat(t, eUint(0x23E383, (uint64_t)(1e9 * cfg_.fpsDen / cfg_.fpsNum + 0.5)));
       Bytes v; cat(v, eUint(0xB0, (uint64_t)cfg_.width)); cat(v, eUint(0xBA, (uint64_t)cfg_.height)); cat(t, eElem(0xE0, v));
       cat(tracks, eElem(0xAE, t)); }
     if (cfg_.hasAudio) {
@@ -354,6 +359,12 @@ class MkvWriter : public MediaWriter {
   }
   Status putVideo(Ns rel, int64_t, uint32_t, const uint8_t* d, size_t n, bool key) override {
     ++videoCount_;
+    if (cfg_.codec == VideoCodec::H264) {   // Annex B -> 4-byte length prefixed; SPS/PPS/AUD live in CodecPrivate
+      Bytes s;
+      if (h264::looksAnnexB(d, n)) { if (!h264::annexBToAvcc(d, n, s, true) || s.empty()) return Status::Ok(); }   // parameter-set-only access unit: nothing to store
+      else s.assign(d, d + n);
+      return block(vTrack(), (rel + 500000) / 1000000, key, s.data(), s.size());
+    }
     return block(vTrack(), (rel + 500000) / 1000000, key, d, n);
   }
   uint64_t projectedBytes(uint64_t add) const override {

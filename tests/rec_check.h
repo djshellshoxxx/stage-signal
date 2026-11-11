@@ -105,7 +105,7 @@ inline Avi parseAvi(const B& b) {
 struct MkvBlock { int track; int64_t ms; bool key; size_t size; B data; };
 struct Mkv {
   bool ok = false; std::string err; std::string docType; bool segUnknown = false;
-  struct Track { int num = 0, type = 0; std::string codec; int w = 0, h = 0, ch = 0, bits = 0; double rate = 0; uint64_t defDur = 0; };
+  struct Track { int num = 0, type = 0; std::string codec; std::vector<uint8_t> priv; int w = 0, h = 0, ch = 0, bits = 0; double rate = 0; uint64_t defDur = 0; };
   std::vector<Track> tracks; std::vector<MkvBlock> blocks; std::vector<int64_t> clusterMs; std::vector<int64_t> clusterSpan;
   std::vector<std::pair<std::string, std::string>> tags; size_t cues = 0; std::vector<std::pair<int64_t, uint64_t>> cuePts; double durationMs = 0; double timecodeScale = 0;
   size_t clusters = 0; std::vector<uint8_t> unknownSizedClusters; std::map<uint32_t, uint64_t> seek;   // id -> segment-relative pos
@@ -149,7 +149,7 @@ inline Mkv parseMkv(const B& b) {
     } else if (eid == 0x1654AE6B) {
       size_t q = p; while (q < cend) { uint32_t ci; uint64_t cs; bool cu; r.id(q, ci); r.size(q, cs, cu);
         if (ci == 0xAE) { Mkv::Track t; size_t k = q, ke = q + cs; while (k < ke) { uint32_t ti; uint64_t ts; bool tu; r.id(k, ti); r.size(k, ts, tu);
-            if (ti == 0xD7) t.num = (int)r.uintv(k, ts); else if (ti == 0x83) t.type = (int)r.uintv(k, ts); else if (ti == 0x86) t.codec.assign((const char*)&b[k], ts); else if (ti == 0x23E383) t.defDur = r.uintv(k, ts);
+            if (ti == 0xD7) t.num = (int)r.uintv(k, ts); else if (ti == 0x83) t.type = (int)r.uintv(k, ts); else if (ti == 0x86) t.codec.assign((const char*)&b[k], ts); else if (ti == 0x23E383) t.defDur = r.uintv(k, ts); else if (ti == 0x63A2) t.priv.assign(b.begin() + k, b.begin() + k + ts);
             else if (ti == 0xE0 || ti == 0xE1) { size_t v = k, ve = k + ts; while (v < ve) { uint32_t vi; uint64_t vs; bool vu; r.id(v, vi); r.size(v, vs, vu);
                 if (vi == 0xB0) t.w = (int)r.uintv(v, vs); else if (vi == 0xBA) t.h = (int)r.uintv(v, vs); else if (vi == 0xB5) t.rate = r.flt(v, vs); else if (vi == 0x9F) t.ch = (int)r.uintv(v, vs); else if (vi == 0x6264) t.bits = (int)r.uintv(v, vs); v += vs; } }
             k += ts; } m.tracks.push_back(t); }

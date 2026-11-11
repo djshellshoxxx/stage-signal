@@ -101,7 +101,8 @@ struct RecordingSession::Impl {
       if (!d.encoders) return Status::Fail(Err::EncoderUnavailable, "No video encoder registry is available. Use audio-only recording.");
       EncoderAvailability av_ = d.encoders->availability(prof.video.codec);
       if (!av_.available) return Status::Fail(Err::EncoderUnavailable, std::string(codecName(prof.video.codec)) + " recording is unavailable: " + av_.reason);
-      if (prof.video.codec != VideoCodec::MJPEG) return Status::Fail(Err::UnsupportedCapability, std::string("The ") + recContainerName(prof.container) + " writer in this build can store MJPEG only; " + codecName(prof.video.codec) + " muxing is not implemented.");
+      if (prof.video.codec == VideoCodec::H264 && prof.container != RecContainer::Mkv) return Status::Fail(Err::UnsupportedCapability, std::string("The ") + recContainerName(prof.container) + " writer cannot store H.264; choose the MKV container.");
+      if (prof.video.codec != VideoCodec::MJPEG && prof.video.codec != VideoCodec::H264) return Status::Fail(Err::UnsupportedCapability, std::string(codecName(prof.video.codec)) + " muxing is not implemented.");
       encName = av_.name; encQualified = av_.qualified;
       if (!av_.qualified) addWarning("Video encoder '" + av_.name + "' is not qualified on this machine tier (MJPEG fallback profile); watch dropped-frame counters.");
     }
@@ -138,7 +139,7 @@ struct RecordingSession::Impl {
       wavw.reset(new WavWriter(*d.fs, &journal)); s = wavw->open(wc);
     } else {
       MediaWriterConfig mc; mc.dir = r.dir; mc.base = base; mc.audioRate = prof.audioRate; mc.audioChannels = prof.audioChannels; mc.audioBits = prof.audioBits;
-      mc.width = prof.video.width; mc.height = prof.video.height; mc.fpsNum = prof.video.fpsNum; mc.fpsDen = prof.video.fpsDen; mc.codec = prof.video.codec;
+      mc.width = prof.video.width; mc.height = prof.video.height; mc.fpsNum = prof.video.fpsNum; mc.fpsDen = prof.video.fpsDen; mc.codec = prof.video.codec; if (enc) mc.codecPrivate = enc->codecPrivate();
       mc.maxSegmentNs = prof.segmentNs; mc.maxSegmentBytes = prof.segmentBytes;
       mw = MediaWriter::create(prof.container == RecContainer::Avi ? MediaContainer::Avi : MediaContainer::Mkv, *d.fs, &journal);
       mw->setTagProvider([this](const SegmentInfo& seg) { return tagsFor(seg); });

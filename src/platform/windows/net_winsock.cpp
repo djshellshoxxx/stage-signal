@@ -143,6 +143,14 @@ class Udp : public IUdpSocketW {
     return n;
   }
   uint16_t localPort() const override { return port_; }
+  Status setTtl(int ttl) override {
+    if (s_ == INVALID_SOCKET) return Status::Fail(Err::InvalidArgument, "socket not bound");
+    if (ttl < 1 || ttl > 255) return Status::Fail(Err::InvalidArgument, "TTL out of range");
+    int t = ttl; DWORD mt = (DWORD)ttl;
+    if (setsockopt(s_, IPPROTO_IP, IP_TTL, (const char*)&t, sizeof t) != 0) return wsFail("set TTL", WSAGetLastError());
+    setsockopt(s_, IPPROTO_IP, IP_MULTICAST_TTL, (const char*)&mt, sizeof mt);
+    return Status::Ok();
+  }
   void close() override { if (s_ != INVALID_SOCKET) { closesocket(s_); s_ = INVALID_SOCKET; } ws_.reset(); port_ = 0; }
  private:
   std::unique_ptr<Ws> ws_; SOCKET s_ = INVALID_SOCKET; uint16_t port_ = 0; Resolver res_;
@@ -152,6 +160,29 @@ class Udp : public IUdpSocketW {
 
 std::unique_ptr<IDatagramSink> makeDatagramSink() { return std::unique_ptr<IDatagramSink>(new Sink()); }
 std::unique_ptr<IUdpSocketW> makeUdpSocket() { return std::unique_ptr<IUdpSocketW>(new Udp()); }
+
+namespace {
+class UdpAdapter : public IUdpSocket {
+ public:
+  explicit UdpAdapter(std::unique_ptr<IUdpSocketW> w) : w_(std::move(w)) {}
+  ~UdpAdapter() override { close(); }
+  Status open(const std::string& nic, int ttl) override {
+    if (!w_) return Status::Fail(Err::TransportFailure, "no UDP socket");
+    Status s = w_->bind(nic, 0, false, false);          // no SO_REUSEADDR, no broadcast: RTP is unicast/multicast only
+    if (!s.ok()) return Status::Fail(Err::TransportFailure, s.detail);
+    s = w_->setTtl(ttl); if (!s.ok()) { w_->close(); return Status::Fail(Err::TransportFailure, s.detail); }
+    return Status::Ok();
+  }
+  Status sendTo(const std::string& host, uint16_t port, const uint8_t* d, size_t n) override {
+    Status s = w_->sendTo(host, port, d, n); return s.ok() ? s : Status::Fail(Err::TransportFailure, s.detail);
+  }
+  void close() override { if (w_) w_->close(); }
+ private:
+  std::unique_ptr<IUdpSocketW> w_;
+};
+}
+std::unique_ptr<IUdpSocket> adaptUdpSocket(std::unique_ptr<IUdpSocketW> w) { return std::unique_ptr<IUdpSocket>(new UdpAdapter(std::move(w))); }
+std::unique_ptr<IUdpSocket> makeBroadcastUdpSocket() { return adaptUdpSocket(makeUdpSocket()); }
 
 std::vector<NicInfo> listNics() {
   std::vector<NicInfo> out;

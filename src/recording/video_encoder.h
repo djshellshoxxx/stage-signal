@@ -33,6 +33,8 @@ struct IVideoEncoder {
   virtual Ns delayNs() const = 0;
   virtual std::string name() const = 0;
   virtual VideoCodec codec() const = 0;
+  // H.264 only: AVCDecoderConfigurationRecord (avcC) valid after open(); used as the Matroska CodecPrivate. Packets are Annex B.
+  virtual std::vector<uint8_t> codecPrivate() const { return std::vector<uint8_t>(); }
 };
 
 struct EncoderAvailability {
