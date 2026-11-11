@@ -19,7 +19,7 @@ class MediaPage : public Page {
     int y = 4;
     y = heading("Media import (PNG, JPEG, BMP, GIF; MP4/MOV/MKV where the video decoder exists)", y);
     button("Import media...", 8, y, 140, 32, [this] { importMedia(); });
-    label("Files are validated (type, signature, size, dimensions) before they are copied into the show's media folder.", 156, y + 6, 612, 22);
+    label("Files are validated (type, signature, size, dimensions) before they are copied into the show's media folder.", 156, y, 612, 38);
     y += 38;
     edLog_ = edit("", 8, y, 760, 70, ES_MULTILINE | ES_READONLY | WS_VSCROLL | ES_AUTOVSCROLL); y += 76;
     tblMedia_ = table(8, y, 760, 100, {{"File", 300}, {"Format", 70}, {"Size", 100}, {"Status", 240}}); y += 106;

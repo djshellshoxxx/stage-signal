@@ -67,7 +67,7 @@ void OutputWindows::sync() {
                                r.x, r.y, r.w, r.h, nullptr, nullptr, GetModuleHandleW(nullptr), d);
       if (!h) { delete d; continue; }
       ShowWindow(h, SW_SHOWNOACTIVATE); SetWindowPos(h, HWND_TOPMOST, r.x, r.y, r.w, r.h, SWP_NOACTIVATE | SWP_SHOWWINDOW);
-      W w; w.h = h; w.generation = r.generation; wins_[r.logicalId] = w;
+      Win w; w.h = h; w.generation = r.generation; wins_[r.logicalId] = w;
     } else {
       OutData* d = (OutData*)GetWindowLongPtrW(it->second.h, GWLP_USERDATA);
       if (d && d->diag != r.diagnostics) { d->diag = r.diagnostics; InvalidateRect(it->second.h, nullptr, FALSE); }

@@ -20,10 +20,10 @@ class RecordPage : public Page {
     btnRecStop_ = button("Stop recording", 516, y - 3, 130, 34, [] { act(ActionId::StopRecording); });
     button("Add marker", 652, y - 3, 116, 34, [] { A.ctl->addMarker("Marker"); postNotice("Marker added.", false); });
     y += 40;
-    lblRec_ = label("", 8, y, 760, 112); y += 116;
+    lblRec_ = label("", 8, y, 760, 84); y += 88;
     label("Input (raw) level and clip indicator:", 8, y, 300, 22, true); y += 24;
     meter_ = mkMeter(hwnd, S(8), S(y), S(600), S(30)); track(meter_, 8, y, 600, 30); y += 36;
-    lblProc_ = label("", 8, y, 760, 44); y += 48;
+    lblProc_ = label("", 8, y, 760, 64); y += 68;
 
     y = heading("Recording / broadcast dynamics (compressor + limiter; on by default)", y);
     chkBypass_ = check("Bypass dynamics (recorded in metadata)", 8, y, 330, [this](bool) { applyDyn(); });

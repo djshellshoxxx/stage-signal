@@ -141,7 +141,7 @@ HWND Page::radio(const std::string& t, int x, int y, int w, bool first, std::fun
   return track(c, x, y, w, 24);
 }
 HWND Page::edit(const std::string& t, int x, int y, int w, int h, DWORD extra, std::function<void()> onChange) {
-  int id = newId(); HWND c = mkCtl(hwnd, L"EDIT", t, WS_TABSTOP | ES_AUTOHSCROLL | extra, S(x), S(y), S(w), S(h), id, WS_EX_CLIENTEDGE);
+  int id = newId(); HWND c = mkCtl(hwnd, L"EDIT", t, WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL | extra, S(x), S(y), S(w), S(h), id);
   if (extra & ES_MULTILINE) { SetWindowLongW(c, GWL_STYLE, GetWindowLongW(c, GWL_STYLE) & ~ES_AUTOHSCROLL); }
   if (onChange) onCmd(id, [onChange](int code) { if (code == EN_CHANGE) onChange(); });
   return track(c, x, y, w, h);
@@ -153,7 +153,7 @@ HWND Page::combo(int x, int y, int w, std::function<void(int)> onSel, int dropH)
   return track(c, x, y, w, dropH, 26);   // the window height of a combo includes its drop-down list
 }
 HWND Page::listbox(int x, int y, int w, int h, std::function<void(int)> onSel) {
-  int id = newId(); HWND c = mkCtl(hwnd, L"LISTBOX", "", LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_TABSTOP, S(x), S(y), S(w), S(h), id, WS_EX_CLIENTEDGE);
+  int id = newId(); HWND c = mkCtl(hwnd, L"LISTBOX", "", LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_TABSTOP | WS_BORDER, S(x), S(y), S(w), S(h), id);
   if (onSel) onCmd(id, [c, onSel](int code) { if (code == LBN_SELCHANGE) onSel((int)SendMessageW(c, LB_GETCURSEL, 0, 0)); });
   return track(c, x, y, w, h);
 }

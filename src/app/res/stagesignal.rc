@@ -1,0 +1,60 @@
+// Resources: icon, manifest (comctl32 v6, asInvoker, system-DPI aware), version info, offline help text, license notices.
+#include <windows.h>
+#include "app/version.h"
+
+1 ICON "res/app.ico"
+1 RT_MANIFEST "res/stagesignal.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION SS_VERSION_RC
+ PRODUCTVERSION SS_VERSION_RC
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+ FILESUBTYPE 0x0L
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904b0"
+    BEGIN
+      VALUE "CompanyName", "Circuit Drift Labs"
+      VALUE "FileDescription", "StageSignal operator application"
+      VALUE "FileVersion", SS_VERSION
+      VALUE "InternalName", "StageSignal"
+      VALUE "LegalCopyright", "Copyright (c) 2026 Circuit Drift Labs"
+      VALUE "OriginalFilename", "StageSignal.exe"
+      VALUE "ProductName", "StageSignal"
+      VALUE "ProductVersion", SS_VERSION
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END
+
+HELP_00_WALKTHROUGH RCDATA "docs/help/00-first-show-walkthrough.md"
+HELP_01_DISPLAYS RCDATA "docs/help/01-display-roles.md"
+HELP_02_AUDIO RCDATA "docs/help/02-audio-gain-staging.md"
+HELP_03_BPMKEY RCDATA "docs/help/03-bpm-key-confidence.md"
+HELP_04_MODES RCDATA "docs/help/04-scene-modes.md"
+HELP_05_TEXT RCDATA "docs/help/05-live-text.md"
+HELP_06_CAMERA RCDATA "docs/help/06-camera-publication.md"
+HELP_07_MIDI RCDATA "docs/help/07-midi-learn-clock.md"
+HELP_08_LIGHTING RCDATA "docs/help/08-lighting-arm-blackout.md"
+HELP_09_BENCH RCDATA "docs/help/09-benchmark.md"
+HELP_10_RECORD RCDATA "docs/help/10-recorder-recovery.md"
+HELP_11_BROADCAST RCDATA "docs/help/11-broadcast-protocols.md"
+HELP_12_EXPORT RCDATA "docs/help/12-portable-export.md"
+HELP_13_KEYS RCDATA "docs/help/13-keyboard-map.md"
+HELP_14_DIAG RCDATA "docs/help/14-sanitized-diagnostics.md"
+HELP_20_TS_AUDIO RCDATA "docs/help/20-troubleshoot-audio.md"
+HELP_21_TS_DISPLAY RCDATA "docs/help/21-troubleshoot-displays.md"
+HELP_22_TS_CAMERA RCDATA "docs/help/22-troubleshoot-camera.md"
+HELP_23_TS_MIDI RCDATA "docs/help/23-troubleshoot-midi.md"
+HELP_24_TS_LIGHTING RCDATA "docs/help/24-troubleshoot-lighting.md"
+HELP_25_TS_RECORDING RCDATA "docs/help/25-troubleshoot-recording.md"
+HELP_26_TS_NETWORK RCDATA "docs/help/26-troubleshoot-broadcast-network.md"
+LICENSE_README RCDATA "licenses/README.md"
+LICENSE_THIRD_PARTY RCDATA "licenses/THIRD_PARTY.md"

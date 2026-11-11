@@ -13,7 +13,7 @@ class OutputWindows {
   void closeAll();
   size_t count() const { return wins_.size(); }
  private:
-  struct W { HWND h = nullptr; uint64_t generation = 0; };
-  std::map<std::string, W> wins_;
+  struct Win { HWND h = nullptr; uint64_t generation = 0; };
+  std::map<std::string, Win> wins_;
 };
 }} // namespace ss::ui

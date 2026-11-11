@@ -17,4 +17,5 @@ void applyDocEdit(const std::function<void(show::ShowDocument&)>& edit);   // co
 std::vector<std::string> sceneNames(const show::ShowDocument& d);
 void showHelp(int topicIndex = -1);        // help.cpp
 void showAbout(HWND owner);                // help.cpp
+void showHelpTopic(const std::string& key);   // opens the help topic whose title contains key
 }} // namespace ss::ui

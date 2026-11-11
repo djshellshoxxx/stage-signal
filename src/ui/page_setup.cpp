@@ -12,7 +12,7 @@ class SetupPage : public Page {
   SetupPage() : Page("Setup") {}
   void build() override {
     int y = 4;
-    y = heading("Setup progress (steps 1-8; DMX, recording and broadcast stay off)", y);
+    y = heading("Setup progress (DMX, recording and broadcast stay off)", y);
     lblSteps_ = label("", 8, y, 760, 170); y += 176;
     button("Save setup", 8, y, 110, 32, [this] { Status s = ctl().saveSetup(); postNotice(s.ok() ? "Setup saved." : "Setup not saved: " + s.detail, !s.ok()); });
     y += 44;
