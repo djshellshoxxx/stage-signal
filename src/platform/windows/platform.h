@@ -80,7 +80,7 @@ std::unique_ptr<IDiskInfo> makeDiskInfo();
 
 // ---- USB DMX serial (REQ-L06). NOT hardware-qualified: no adapter is listed as supported until it has recorded results. ----
 struct SerialPortInfo { std::string portName; std::string friendlyName; };   // "COM3", "USB Serial Port (COM3)"
-std::vector<SerialPortInfo> listSerialPorts();                                // registry SERIALCOMM + SetupAPI-free friendly names
+std::vector<SerialPortInfo> listSerialPorts();                                // registry HKLM\\HARDWARE\\DEVICEMAP\\SERIALCOMM (device object name is the label)
 // CreateFile("\\.\COMn", overlapped), 250000 baud 8N2 (DMX512 line settings), write with 1 s timeout.
 std::unique_ptr<IUsbSerialLink> makeUsbSerialLink();
 // Named adapters whose protocol is implemented (label: "protocol implemented, not hardware-qualified"). Empty qualified list stays empty.

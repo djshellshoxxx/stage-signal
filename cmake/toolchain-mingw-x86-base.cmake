@@ -1,0 +1,16 @@
+# Cross-compile the legacy BASE x86 build (i586, no SSE/MMX, 387 FP) with MinGW-w64 (posix threads, static runtime).
+# Use together with -DSS_BASE_X86=ON (build_windows.sh does this).
+set(CMAKE_SYSTEM_NAME Windows)
+set(CMAKE_SYSTEM_PROCESSOR i686)
+set(_ss_triple i686-w64-mingw32)
+set(CMAKE_C_COMPILER ${_ss_triple}-gcc-posix)
+set(CMAKE_CXX_COMPILER ${_ss_triple}-g++-posix)
+set(CMAKE_RC_COMPILER ${_ss_triple}-windres)
+set(CMAKE_FIND_ROOT_PATH /usr/${_ss_triple})
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+set(CMAKE_EXE_LINKER_FLAGS_INIT "-static -static-libgcc -static-libstdc++")
+set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
+set(THREADS_PREFER_PTHREAD_FLAG TRUE)
+set(SS_BASE_X86 ON CACHE BOOL "BASE x86 baseline" FORCE)

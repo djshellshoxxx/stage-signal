@@ -51,6 +51,7 @@ if(SS_BUILD_TESTS)
 endif()
 
 if(WIN32)
+  enable_language(RC)
   file(GLOB_RECURSE winsrcs CONFIGURE_DEPENDS src/platform/windows/*.cpp src/ui/*.cpp src/app/*.cpp)
   file(GLOB rc CONFIGURE_DEPENDS src/app/*.rc)
   if(winsrcs)
@@ -59,6 +60,8 @@ if(WIN32)
       ole32 oleaut32 uuid winmm ws2_32 user32 gdi32 comctl32 comdlg32 shell32 advapi32 crypt32
       mfplat mf mfreadwrite mfuuid shlwapi dwmapi uxtheme avrt iphlpapi psapi)
     target_link_options(StageSignal PRIVATE -static -mwindows)
-    target_compile_definitions(StageSignal PRIVATE UNICODE _UNICODE _WIN32_WINNT=0x0601 WINVER=0x0601)
+    target_compile_definitions(StageSignal PRIVATE UNICODE _UNICODE _WIN32_WINNT=0x0601 WINVER=0x0601 NOMINMAX SS_VERSION_STR="${PROJECT_VERSION}")
+    # .rc embeds docs/help, licenses and the manifest by path relative to the repo root / src/app.
+    target_include_directories(StageSignal PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src/app)
   endif()
 endif()

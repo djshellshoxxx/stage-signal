@@ -10,6 +10,8 @@ void yuy2ToRgb32(const uint8_t* src, int stride, int w, int h, bool bottomUp, ui
 void nv12ToRgb32(const uint8_t* y, int yStride, const uint8_t* uv, int uvStride, int w, int h, uint32_t* dst);
 void bgr24ToRgb32(const uint8_t* src, int stride, int w, int h, bool bottomUp, uint32_t* dst);
 void bgrx32ToRgb32(const uint8_t* src, int stride, int w, int h, bool bottomUp, uint32_t* dst);
+// 0x00RRGGBB frame -> NV12 (BT.601 limited range, 2x2 averaged chroma). Odd w/h: last column/row replicated. y: w*h (stride yStride), uv: interleaved UV, (h+1)/2 rows.
+void rgb32ToNv12(const uint32_t* src, int w, int h, uint8_t* y, int yStride, uint8_t* uv, int uvStride);
 // Nearest-neighbour scale (fixed point). dst stride == dw.
 void scaleNearest(const uint32_t* src, int sw, int sh, uint32_t* dst, int dw, int dh);
 // Fit (sw,sh) inside (maxW,maxH) keeping aspect; never upscales; result even and >= 2. maxW/maxH <= 0 means unlimited.

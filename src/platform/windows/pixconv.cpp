@@ -75,4 +75,21 @@ void fitSize(int sw, int sh, int maxW, int maxH, int& ow, int& oh) {
   if (oh < 2) oh = 2;
 }
 
+void rgb32ToNv12(const uint32_t* src, int w, int h, uint8_t* y, int yStride, uint8_t* uv, int uvStride) {
+  for (int j = 0; j < h; ++j) {
+    const uint32_t* r = src + (size_t)j * w; uint8_t* yo = y + (size_t)j * yStride;
+    for (int i = 0; i < w; ++i) { int R = (r[i] >> 16) & 255, G = (r[i] >> 8) & 255, B = r[i] & 255; yo[i] = (uint8_t)(((66 * R + 129 * G + 25 * B + 128) >> 8) + 16); }
+  }
+  for (int j = 0; j < h; j += 2) {
+    const uint32_t* r0 = src + (size_t)j * w; const uint32_t* r1 = src + (size_t)(j + 1 < h ? j + 1 : j) * w; uint8_t* o = uv + (size_t)(j / 2) * uvStride;
+    for (int i = 0; i < w; i += 2) {
+      int i1 = i + 1 < w ? i + 1 : i; int R = 0, G = 0, B = 0;
+      const uint32_t p[4] = {r0[i], r0[i1], r1[i], r1[i1]};
+      for (int k = 0; k < 4; ++k) { R += (p[k] >> 16) & 255; G += (p[k] >> 8) & 255; B += p[k] & 255; }
+      R = (R + 2) >> 2; G = (G + 2) >> 2; B = (B + 2) >> 2;
+      o[i] = (uint8_t)clamp8(((-38 * R - 74 * G + 112 * B + 128) >> 8) + 128);
+      o[i + 1] = (uint8_t)clamp8(((112 * R - 94 * G - 18 * B + 128) >> 8) + 128);
+    }
+  }
+}
 }}}

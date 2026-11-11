@@ -4,10 +4,15 @@
 #include "platform/windows/platform.h"
 #include "platform/windows/display_ident.h"
 #include "platform/windows/pixconv.h"
+#include "recording/h264.h"
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <chrono>
 #include <thread>
+#include <algorithm>
 
 using namespace ss;
 static int g_fail = 0;
@@ -145,6 +150,66 @@ static void testSys() {
   CHECK(c.wallNs > 0);
 }
 
+
+// ---- additions: disk, serial, UDP adapter, TCP stream (+RTMP over real loopback sockets), MF encoder availability ----
+static void testNet2() {
+  INFO("[net2] disk / serial / udp adapter / tcp stream / rtmp-over-tcp / encoders");
+  { uint8_t src_[4 * 4 * 4]; uint32_t px[16]; for (int i = 0; i < 16; ++i) px[i] = 0xFFFFFF; (void)src_;
+    uint8_t y[16], uv[8]; win::pix::rgb32ToNv12(px, 4, 4, y, 4, uv, 4); CHECK(y[0] == 235 && y[15] == 235 && uv[0] >= 127 && uv[0] <= 129 && uv[1] >= 127 && uv[1] <= 129);
+    for (int i = 0; i < 16; ++i) px[i] = 0; win::pix::rgb32ToNv12(px, 4, 4, y, 4, uv, 4); CHECK(y[0] == 16 && uv[0] == 128 && uv[7] == 128);
+    for (int i = 0; i < 16; ++i) px[i] = 0xFF0000; win::pix::rgb32ToNv12(px, 4, 4, y, 4, uv, 4); CHECK(y[0] >= 80 && y[0] <= 83 && uv[1] >= 238 && uv[0] <= 91);   // red: Y~81, V~240, U~90
+    uint32_t odd[9]; for (auto& v : odd) v = 0x808080; uint8_t y3[9], uv3[8] = {0}; win::pix::rgb32ToNv12(odd, 3, 3, y3, 3, uv3, 4); CHECK(y3[8] == y3[0] && uv3[3] != 0); }
+  { auto d = win::makeDiskInfo(); uint64_t f = 0; CHECK(d->freeBytes(".", f) && f > 0); uint64_t g = 0; CHECK(d->freeBytes("no_such_dir_xyz\\sub\\deeper", g) && g > 0); INFO("  free bytes here: %llu", (unsigned long long)f); }
+  { auto ports = win::listSerialPorts(); INFO("  serial ports: %zu", ports.size()); auto l = win::makeUsbSerialLink();
+    CHECK(!l->isOpen()); CHECK(l->open("..\\x").code == Err::InvalidArgument); CHECK(l->open("COM0").code == Err::InvalidArgument); CHECK(l->open("\\\\.\\PhysicalDrive0").code == Err::InvalidArgument);
+    Status s = l->open("COM250"); CHECK(!s.ok() && !l->isOpen()); uint8_t b[3] = {1, 2, 3}; CHECK(!l->write(b, 3).ok());
+    auto named = win::namedUsbAdapters(); CHECK(!named.empty()); for (auto& a : named) CHECK(!a.hardwareQualified); }
+  { auto u = win::makeBroadcastUdpSocket(); CHECK(u->open("127.0.0.1", 1).ok()); uint8_t d[4] = {1, 2, 3, 4}; CHECK(u->sendTo("127.0.0.1", 9, d, 4).ok()); u->close(); CHECK(!win::makeBroadcastUdpSocket()->open("999.1.1.1", 1).ok()); }
+  // loopback TCP server on an ephemeral port
+  WSADATA wd; WSAStartup(MAKEWORD(2, 2), &wd);
+  SOCKET ls = socket(AF_INET, SOCK_STREAM, 0); sockaddr_in a; std::memset(&a, 0, sizeof a); a.sin_family = AF_INET; a.sin_addr.s_addr = htonl(INADDR_LOOPBACK); a.sin_port = 0;
+  CHECK(bind(ls, (sockaddr*)&a, sizeof a) == 0 && listen(ls, 4) == 0); int al = sizeof a; getsockname(ls, (sockaddr*)&a, &al); uint16_t port = ntohs(a.sin_port);
+  std::atomic<int> mode{0}; std::atomic<int> gotC0{-1}; std::atomic<int> gotBytes{0}; std::atomic<bool> stopSrv{false};
+  std::thread srv([&] {
+    while (!stopSrv) {
+      fd_set f; FD_ZERO(&f); FD_SET(ls, &f); timeval tv = {0, 50000}; if (select(0, &f, nullptr, nullptr, &tv) <= 0) continue;
+      SOCKET c = accept(ls, nullptr, nullptr); if (c == INVALID_SOCKET) continue;
+      int m = mode.load(); char buf[2048];
+      if (m == 0) { int n = recv(c, buf, sizeof buf, 0); if (n > 0) ::send(c, buf, n, 0); }                    // echo
+      else if (m == 1) { int got = 0; while (got < 1537) { int n = recv(c, buf, (int)std::min<size_t>(sizeof buf, 1537 - got), 0); if (n <= 0) break; if (got == 0) gotC0 = (uint8_t)buf[0]; got += n; } gotBytes = got;   // RTMP: swallow C0+C1, then stay silent
+        for (int i = 0; i < 40 && !stopSrv; ++i) Sleep(25); }
+      else { Sleep(1500); }                                                                                   // m==2: accept and say nothing (TLS handshake must time out)
+      closesocket(c);
+    }
+  });
+  { mode = 0; auto s = win::makeTcpStream(); CHECK(s->connect("127.0.0.1", port, false, 3 * kNsPerSec).ok());
+    const char msg[] = "hello"; CHECK(s->send((const uint8_t*)msg, 5, 500) == 5); uint8_t r[16]; int n = 0; for (int i = 0; i < 50 && n <= 0; ++i) n = s->recv(r, sizeof r, 100); CHECK(n == 5 && std::memcmp(r, msg, 5) == 0); }
+  { auto s = win::makeTcpStream(); Status st = s->connect("127.0.0.1", 1, false, 2 * kNsPerSec); CHECK(!st.ok()); CHECK(!s->lastError().empty()); }            // refused
+  { mode = 2; auto s = win::makeTcpStream(); CHECK(s->connect("127.0.0.1", port, false, 3 * kNsPerSec).ok());                                                  // close() aborts a blocked recv
+    std::atomic<bool> done{false}; std::thread t([&] { uint8_t b[8]; int n = s->recv(b, 8, 5000); (void)n; done = true; });
+    Sleep(100); auto t0 = std::chrono::steady_clock::now(); s->close(); while (!done && std::chrono::steady_clock::now() - t0 < std::chrono::seconds(3)) Sleep(5); CHECK(done); CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::seconds(1)); t.join(); }
+  { mode = 2; auto s = win::makeTcpStream(); std::atomic<bool> done{false}; Status st; std::thread t([&] { st = s->connect("127.0.0.1", port, true, 5 * kNsPerSec); done = true; });    // TLS to a silent plain server: must fail, never "succeed"
+    Sleep(150); auto t0 = std::chrono::steady_clock::now(); s->close(); while (!done && std::chrono::steady_clock::now() - t0 < std::chrono::seconds(3)) Sleep(5); CHECK(done); t.join(); CHECK(!st.ok());
+    INFO("  schannel verification support: %s; tls connect to non-TLS peer: %s", s->supportsTlsVerification() ? "yes" : "no", st.detail.c_str()); }
+  { mode = 0; auto s = win::makeTcpStream(); Status st = s->connect("127.0.0.1", port, true, 2 * kNsPerSec); CHECK(!st.ok()); }
+  // RTMP client over real sockets: it must send C0+C1 (1537 bytes, version 3) and Stop must cancel within 1 s while waiting for S0/S1
+  { mode = 1; gotC0 = -1; gotBytes = 0; RtmpTransport t(win::makeTcpStream(), false); TransportParams p; p.settings = defaultBroadcastSettings(); p.settings.endpoint.protocol = BroadcastProtocol::RTMP;
+    p.settings.endpoint.host = "127.0.0.1"; p.settings.endpoint.port = port; p.settings.endpoint.path = "/live"; p.secret = "sk_smoke_key"; std::atomic<int> ev{0};
+    CHECK(t.connect(p, [&](const TransportEvent&) { ++ev; }).ok()); for (int i = 0; i < 100 && gotBytes < 1537; ++i) Sleep(20); CHECK(gotBytes == 1537 && gotC0 == 3);
+    auto t0 = std::chrono::steady_clock::now(); t.close(); CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::seconds(1)); CHECK(ev == 0); }
+  // RTMPS factory refusal when the stream cannot verify certificates is covered natively; here: factory with the real stream
+  { TransportFactory f; f.setByteStreamFactory([] { return win::makeTcpStream(); }); std::unique_ptr<ITransport> t; BroadcastSettings b = defaultBroadcastSettings(); b.endpoint.host = "h.example.net"; b.endpoint.path = "/live";
+    Status st = f.create(b, t); CHECK(win::schannelTlsAvailable() ? st.ok() : (st.code == Err::UnsupportedCapability && st.detail.find("CertificateRequired") != std::string::npos)); }
+  stopSrv = true; srv.join(); closesocket(ls); WSACleanup();
+  { EncoderRegistry reg = EncoderRegistry::withBuiltins(); win::registerWindowsEncoders(reg); EncoderAvailability a = reg.availability(VideoCodec::H264); EncoderAvailability p = win::h264EncoderAvailability();
+    INFO("  h264-mf: %s (%s)", a.available ? "registered" : "not registered", p.reason.c_str()); CHECK(a.available == p.available); CHECK(!a.available || (a.name == "h264-mf" && !a.qualified));
+    VideoProfile vp; vp.codec = VideoCodec::H264; vp.width = 320; vp.height = 240; vp.bitrateKbps = 500; std::unique_ptr<IVideoEncoder> enc; Status s = reg.create(vp, enc);
+    if (!p.available) CHECK(s.code == Err::EncoderUnavailable && !s.detail.empty()); else INFO("  h264-mf open: %s", s.ok() ? "ok" : s.detail.c_str());
+    auto aac_ = win::makeAacEncoder(); AudioEncoderProfile ap; Status as = aac_->open(ap); EncoderAvailability aa = win::aacEncoderAvailability(); INFO("  aac-mf: %s (%s)", aa.available ? "available" : "unavailable", aa.reason.c_str());
+    if (!aa.available) CHECK(as.code == Err::EncoderUnavailable); CHECK(aac_->audioSpecificConfig() == (std::vector<uint8_t>{0x11, 0x90}));
+    AudioEncoderProfile bad; bad.rate = 12345; CHECK(win::makeAacEncoder()->open(bad).code == Err::InvalidArgument); }
+}
+
 int main() {
   testPure();
   testSys();
@@ -152,6 +217,7 @@ int main() {
   testUdp();
   testSecrets();
   testDevices();
+  testNet2();
   INFO("smoke: %s (%d failed checks)", g_fail ? "FAILURES" : "OK", g_fail);
   return g_fail ? 1 : 0;
 }
