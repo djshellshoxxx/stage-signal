@@ -14,19 +14,9 @@ This page lists what is left. It does not promise dates. The authoritative lists
 | DEC-10 | A key-detection corpus. Accuracy on real music is unknown. | Addendum, `KNOWN_LIMITATIONS` L-03 |
 | CLAP host | Which host is the first officially supported one (REAPER is suggested) | `research-deferred` section 9 |
 
-## Modules in the spec but not in the repo
+## Core modules
 
-| Module | Spec area | Notes |
-|---|---|---|
-| `audio` | MOD-03 analysis: tempo, key, bands, onsets, Energy Arc detector | Needed for anything reactive |
-| `midi` | MOD-09 | Device adapter and mapping engine |
-| `router` | MOD-05 | Output routing and feedback prevention |
-| `media` | MOD-07 | Import, decode, flash-risk check |
-| `record` | MOD-11 | Session logic, segment rules, recovery |
-| `broadcast` | MOD-12 | Endpoint, reconnect, FFmpeg lifecycle |
-| `perf` | MOD-14 | Benchmark, quality tiers, budgets |
-| `doctor` | Show Doctor | Pure checks over snapshots |
-| `palette` | Command Palette | Action labels and context rules |
+All portable core modules named in `docs/ARCHITECTURE.md` now exist under `core/` (audio, midi, router, media, record, broadcast, perf, doctor, palette and the rest), each with unit tests under `tests/unit/`. What remains is the JUCE app layer below and the hardware evidence further down. Per-module status is tracked in `docs/TRACEABILITY.md`.
 
 ## App layer (the largest gap)
 
