@@ -49,6 +49,7 @@ void UiModel::removeListener(UiModelListener* l) {
 }
 
 void UiModel::poll() {
+    if (pollHook_) pollHook_();
     ActionOutcome ao;
     while (outcomes_.pop(ao)) {
         auto copy = listeners_;     // a listener may remove itself while handling

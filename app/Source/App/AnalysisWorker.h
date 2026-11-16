@@ -33,6 +33,9 @@ public:
     // Any thread.
     bool features(ss::FeatureSnapshot& out) const { return features_.read(out); }
     bool visual(ss::render::AudioVisualInput& out) const { return visual_.read(out); }
+    // Any thread, before audio starts (REQ-R02). Opt-in: adds the detector latency and about 4x the limiter's CPU; see
+    // docs/specs/dynamics.md. Takes effect when the engine is next prepared (device or format change, or restart).
+    void setTruePeakLimiter(bool on) { truePeakLimiter_.store(on, std::memory_order_relaxed); }
     bool signalAlive(ss::Ns now) const {
         const ss::Ns last = lastBlockNs_.load(std::memory_order_relaxed);
         return last != 0 && now - last < 500 * ss::kNsPerMs;
@@ -41,6 +44,14 @@ public:
     ss::dynamics::DynamicsProcessor& dynamics() { return dyn_; }     // setParams() is callable from any thread
     const ss::LatestMailbox<ss::FeatureSnapshot>& featureMailbox() const { return features_; }
     const ss::LatestMailbox<ss::render::AudioVisualInput>& visualMailbox() const { return visual_; }
+    // Onset drain: every onset the analyser emitted is counted, so a consumer slower than the analysis loop never
+    // misses one (the mailbox's onsetFired is edge-latched and can be overwritten). Each consumer keeps its own cursor.
+    std::uint64_t onsetsSince(std::uint64_t& cursor) const {
+        const std::uint64_t now = onsets_.load(std::memory_order_relaxed);
+        const std::uint64_t n = now - cursor;
+        cursor = now;
+        return n;
+    }
     std::uint64_t blocksProcessed() const { return blocks_.load(std::memory_order_relaxed); }
 
 private:
@@ -51,13 +62,14 @@ private:
     ss::dynamics::DynamicsProcessor dyn_;
     std::vector<IProcessedAudioConsumer*> consumers_;
     std::vector<float> out_;                       // preallocated at prepare
+    std::atomic<bool> truePeakLimiter_{false};     // read at the next prepare only (a running session keeps its engine)
     std::uint32_t preparedRate_ = 0, preparedCh_ = 0, outCh_ = 0;
     Generation preparedGen_ = 0;
     bool havePrepared_ = false;
     ss::LatestMailbox<ss::FeatureSnapshot> features_;
     ss::LatestMailbox<ss::render::AudioVisualInput> visual_;
     std::atomic<ss::Ns> lastBlockNs_{0};
-    std::atomic<std::uint64_t> blocks_{0};
+    std::atomic<std::uint64_t> blocks_{0}, onsets_{0};
 };
 
 }  // namespace ss::app

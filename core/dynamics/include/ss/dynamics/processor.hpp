@@ -1,4 +1,5 @@
-// MOD-03 dynamics: digital trim -> stereo-linked compressor -> lookahead sample-peak limiter -> telemetry.
+// MOD-03 dynamics: digital trim -> stereo-linked compressor -> lookahead limiter (sample-peak, or true-peak when
+// DynamicsConfig::truePeakLimiter is set) -> telemetry.
 // Spec section 12 "Recording/broadcast dynamics". Defaults and ranges are the section 12 table.
 //
 // Threading: prepare()/setParams()/resetHolds()/telemetry() may be called from any non-audio thread;
@@ -13,6 +14,7 @@ namespace ss::dynamics {
 
 constexpr float kSilenceDb = -120.0f;
 constexpr float kNearFullScaleDb = -0.5f;        // spec 12: input near-full-scale warning at >= -0.5 dBFS
+constexpr std::uint32_t kTruePeakExtraDelay = 31;   // 8x detector: 32 taps per phase, see processor.cpp
 constexpr std::uint32_t kPossibleClipRun = 3;    // consecutive near-full-scale samples labelled "possible input clipping"
 
 // ---- parameters ---------------------------------------------------------------------------------
@@ -24,7 +26,7 @@ struct DynamicsParams {
     float releaseMs = 150.0f;       // 20 .. 2000
     float kneeDb = 6.0f;            // 0 .. 12
     float makeupDb = 0.0f;          // 0 .. 12    (auto makeup is off)
-    float ceilingDb = -1.0f;        // -12 .. -0.5 (dBFS sample peak)
+    float ceilingDb = -1.0f;        // -12 .. -0.5 (dBFS sample peak; dBTP when the true-peak limiter is on)
     float limiterReleaseMs = 100.0f;  // 20 .. 500
     bool bypass = false;            // equally delayed dry path, click-free ramp
 };
@@ -50,6 +52,10 @@ struct DynamicsConfig {
     bool monoToStereo = false;              // explicit route: mono input duplicated to L/R (ignored for stereo)
     float lookaheadMs = 5.0f;               // 1 .. 20; fixed per admitted profile
     bool truePeakMeter = true;              // 4x oversampled meter on the output (meter only)
+    // Opt in: the limiter detects on an 8x oversampled signal so the reconstructed (inter-sample) peak stays at the ceiling.
+    // Adds kTruePeakExtraDelay samples of latency, reported in PrepareInfo::processingDelaySamples. Validated on synthetic
+    // signals only (docs/specs/dynamics.md Status); not qualified on a music corpus.
+    bool truePeakLimiter = false;
 };
 
 struct PrepareInfo {

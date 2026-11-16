@@ -30,6 +30,10 @@ constexpr Range kKnee{0.0f, 12.0f, 6.0f, kPKnee};
 constexpr Range kMake{0.0f, 12.0f, 0.0f, kPMakeup};
 constexpr Range kCeil{-12.0f, -0.5f, -1.0f, kPCeiling};
 constexpr Range kLRel{20.0f, 500.0f, 100.0f, kPLimiterRelease};
+// Safety margin under the dBTP ceiling. The 8x/32-tap detector reads a few tenths of a dB low on loud broadband noise (measured
+// against a 129-tap reference, see docs/specs/dynamics.md), so the limiter aims this far below the set ceiling: the ceiling is an
+// upper bound, and tonal material lands about this much under it. Tuned on the synthetic suite in test_truepeak_limiter.cpp.
+constexpr float kTruePeakMarginDb = 0.45f;
 
 void clampOne(float& v, const Range& r, std::uint32_t& mask) {
     if (!std::isfinite(v)) { v = r.def; mask |= r.bit; return; }
@@ -67,6 +71,64 @@ struct Hold {
     std::uint64_t nfsSamples = 0, overSamples = 0, limSamples = 0;
 };
 
+// One lookahead limiter stage: min-hold of the required gain over the lookahead window, release-smoothed, then box-averaged so the
+// gain ramps instead of stepping. With `tp` the required gain comes from an 8x oversampled detector (reconstructed peak) and a
+// minimum over every region that can touch one output sample, and the signal it protects must be delayed by delay() instead of L.
+struct LimiterStage {
+    bool tp = false;
+    std::uint32_t L = 1, N = 2, extra = 0;
+    SlidingExtreme<false> gainMin, regionMin;
+    TruePeakDetector8 det[2];
+    double env = 1.0, boxSum = 0.0;
+    std::vector<float> envRing;
+    std::uint32_t envPos = 0;
+    float marginLin = 1.0f;
+
+    void init(std::uint32_t lookaheadFrames, bool truePeak, float marginDb) {
+        tp = truePeak;
+        L = std::max<std::uint32_t>(1, lookaheadFrames);
+        N = L + 1;
+        extra = tp ? kTruePeakExtraDelay : 0u;
+        gainMin.init(N);
+        envRing.assign(N, 1.0f);
+        boxSum = static_cast<double>(N);
+        if (tp) { regionMin.init(TruePeakDetector8::kTapsPerPhase); marginLin = dbToLin(-marginDb); }
+    }
+    std::uint32_t delay() const { return L + extra; }
+
+    // `s`: the stage's input sample for each of `ch` channels. Returns the gain for the sample that leaves the delay line now.
+    float step(const float* s, std::uint32_t ch, float ceilLin, double relA) {
+        float target;
+        if (tp) {
+            // The detector reports region r (between samples r and r+1) 16 samples late and an output sample is touched by 32
+            // regions, so the required gain is the minimum over the last 32 reports, and the protected signal is delayed by
+            // `extra` more samples. The margin covers the spread of the gain across those samples.
+            float tpk = 0.0f;
+            for (std::uint32_t c = 0; c < ch; ++c) tpk = std::max(tpk, det[c].push(s[c]));
+            const float ceilEff = ceilLin * marginLin;
+            target = regionMin.push(tpk > ceilEff ? ceilEff / tpk : 1.0f);
+        } else {
+            float pk = 0.0f;
+            for (std::uint32_t c = 0; c < ch; ++c) pk = std::max(pk, std::fabs(s[c]));
+            target = pk > ceilLin ? ceilLin / pk : 1.0f;        // sample-peak limiter
+        }
+        const float m = gainMin.push(target);                    // min over the last N=L+1 targets
+        env = (m < env) ? static_cast<double>(m) : static_cast<double>(m) - (static_cast<double>(m) - env) * relA;
+        boxSum += env - static_cast<double>(envRing[envPos]);
+        envRing[envPos] = static_cast<float>(env);
+        if (++envPos == N) {                                     // exact re-sum once per window: no drift
+            envPos = 0;
+            double sum = 0.0;
+            for (std::uint32_t k = 0; k < N; ++k) sum += envRing[k];
+            boxSum = sum;
+        }
+        float g = static_cast<float>(boxSum / N);
+        if (!(g <= 1.0f)) g = 1.0f;
+        if (g < 0.0f) g = 0.0f;
+        return g;
+    }
+};
+
 }  // namespace
 
 // ---- Engine: all allocation happens in the constructor ---------------------------------------------
@@ -84,13 +146,10 @@ struct DynamicsProcessor::Engine {
     // compressor
     SlidingExtreme<true> detMax;
     float grState = 0.0f;
-    // limiter
-    SlidingExtreme<false> gainMin;
-    double env = 1.0, boxSum = 0.0;
-    std::vector<float> envRing;
-    std::uint32_t envPos = 0;
-    std::vector<float> wetRing, dryRing;   // [L * outCh]
-    std::uint32_t ringPos = 0;
+    // limiter (sample-peak, or true-peak when cfg.truePeakLimiter)
+    LimiterStage lim;
+    std::vector<float> wetRing, dryRing;   // [d * outCh], d = lim.delay()
+    std::uint32_t ringPos = 0, d = 1;
     // meters
     TruePeakMeter tp[2];
     std::uint32_t runLen[2] = {0, 0};
@@ -104,16 +163,15 @@ struct DynamicsProcessor::Engine {
         outCh = (inCh == 1 && !c.monoToStereo) ? 1u : 2u;
         L = std::max<std::uint32_t>(1, static_cast<std::uint32_t>(std::lround(c.lookaheadMs * 1e-3 * c.sampleRateHz)));
         N = L + 1;
-        info = {c.sampleRateHz, inCh, outCh, L};
-        const double fs = c.sampleRateHz;
-        paramA = static_cast<float>(std::exp(-1.0 / (kParamSmoothMs * 1e-3 * fs)));
-        bypassStep = static_cast<float>(1.0 / (kBypassRampMs * 1e-3 * fs));
-        detMax.init(std::max<std::size_t>(1, static_cast<std::size_t>(std::lround(kDetectorWindowMs * 1e-3 * fs))));
-        gainMin.init(N);
-        envRing.assign(N, 1.0f);
-        boxSum = static_cast<double>(N);
-        wetRing.assign(static_cast<std::size_t>(L) * outCh, 0.0f);   // ring of L frames: read-then-write gives a delay of exactly L
-        dryRing.assign(static_cast<std::size_t>(L) * outCh, 0.0f);
+        const double fsr = c.sampleRateHz;
+        lim.init(L, c.truePeakLimiter, kTruePeakMarginDb);
+        d = lim.delay();
+        info = {c.sampleRateHz, inCh, outCh, d};
+        paramA = static_cast<float>(std::exp(-1.0 / (kParamSmoothMs * 1e-3 * fsr)));
+        bypassStep = static_cast<float>(1.0 / (kBypassRampMs * 1e-3 * fsr));
+        detMax.init(std::max<std::size_t>(1, static_cast<std::size_t>(std::lround(kDetectorWindowMs * 1e-3 * fsr))));
+        wetRing.assign(static_cast<std::size_t>(d) * outCh, 0.0f);          // read-then-write on a ring of d frames delays by exactly d
+        dryRing.assign(static_cast<std::size_t>(d) * outCh, 0.0f);
         snapTo(p);
     }
 
@@ -190,21 +248,8 @@ void DynamicsProcessor::Engine::process(const float* in, float* out, std::uint32
         float cpk = 0.0f;
         for (std::uint32_t c = 0; c < outCh; ++c) { cmp[c] = t[c] * compGain; cpk = std::max(cpk, std::fabs(cmp[c])); }
 
-        // ---- lookahead sample-peak limiter ----------------------------------------------------------
-        const float target = cpk > ceilLin ? ceilLin / cpk : 1.0f;
-        const float m = gainMin.push(target);                       // min over the last N=L+1 targets
-        env = (m < env) ? static_cast<double>(m) : static_cast<double>(m) - (static_cast<double>(m) - env) * limRelA;
-        boxSum += env - static_cast<double>(envRing[envPos]);
-        envRing[envPos] = static_cast<float>(env);
-        if (++envPos == N) {                                         // exact re-sum once per window: no drift
-            envPos = 0;
-            double s = 0.0;
-            for (std::uint32_t k = 0; k < N; ++k) s += envRing[k];
-            boxSum = s;
-        }
-        float gl = static_cast<float>(boxSum / N);
-        if (!(gl <= 1.0f)) gl = 1.0f;
-        if (gl < 0.0f) gl = 0.0f;
+        // ---- lookahead limiter ------------------------------------------------------------------------
+        const float gl = lim.step(cmp, outCh, ceilLin, limRelA);
         if (gl < 0.9999f) ++blockLimSamples;
         blockLimMinGain = std::min(blockLimMinGain, gl);
 
@@ -223,7 +268,7 @@ void DynamicsProcessor::Engine::process(const float* in, float* out, std::uint32
             if (ay >= 1.0f) ++hold.overSamples;
             if (wantTp) tp[c].push(y);
         }
-        if (++ringPos == L) ringPos = 0;
+        if (++ringPos == d) ringPos = 0;
     }
 
     // ---- publish block results into holds -----------------------------------------------------------
@@ -248,7 +293,7 @@ struct DynamicsProcessor::Impl {
         std::atomic<float> inPeak{0}, outPeak{0}, outTp{0}, compCur{0}, compMax{0}, limCur{0}, limMaxLin{1};
         std::atomic<std::uint32_t> clipRunMax{0}, delay{0}, outCh{0}, inCh{0}, rate{0};
         std::atomic<std::uint64_t> nfs{0}, over{0}, lim{0}, sanitized{0}, frames{0};
-        std::atomic<bool> limActive{false}, ready{false}, bypassed{false}, tpOn{false};
+        std::atomic<bool> limActive{false}, ready{false}, bypassed{false}, tpOn{false}, tpLimOn{false};
     } tele;
     std::atomic<Engine*> pending{nullptr};
     std::atomic<Engine*> retired{nullptr};
@@ -358,6 +403,7 @@ bool DynamicsProcessor::process(const float* in, float* out, std::uint32_t frame
             I.tele.outCh.store(e->outCh, std::memory_order_relaxed);
             I.tele.rate.store(e->cfg.sampleRateHz, std::memory_order_relaxed);
             I.tele.tpOn.store(e->cfg.truePeakMeter, std::memory_order_relaxed);
+            I.tele.tpLimOn.store(e->cfg.truePeakLimiter, std::memory_order_relaxed);
             I.tele.ready.store(true, std::memory_order_release);
         }
     }
@@ -406,12 +452,13 @@ std::string DynamicsProcessor::metadataJson() const {
     const DynamicsParams p = params();
     const DynamicsTelemetry t = telemetry();
     const PrepareInfo i = activeInfo();
+    const bool tpl = impl_->tele.tpLimOn.load(std::memory_order_relaxed);
     char buf[1536];
     std::snprintf(buf, sizeof buf,
         "{\"dynamics\":{\"enabled\":%s,\"bypassed\":%s,"
         "\"settings\":{\"trimDb\":%.2f,\"thresholdDb\":%.2f,\"ratio\":%.2f,\"attackMs\":%.2f,\"releaseMs\":%.1f,"
-        "\"kneeDb\":%.2f,\"makeupDb\":%.2f,\"ceilingDb\":%.2f,\"ceilingUnit\":\"dBFS sample peak\","
-        "\"limiterReleaseMs\":%.1f,\"limiterType\":\"sample-peak lookahead\",\"trueTpLimiter\":false},"
+        "\"kneeDb\":%.2f,\"makeupDb\":%.2f,\"ceilingDb\":%.2f,\"ceilingUnit\":\"%s\","
+        "\"limiterReleaseMs\":%.1f,\"limiterType\":\"%s\",\"trueTpLimiter\":%s},"
         "\"processingDelaySamples\":%u,\"sampleRateHz\":%u,"
         "\"rawInput\":{\"peakDb\":%.2f,\"nearFullScale\":%s,\"possibleClipping\":%s,\"nearFullScaleSamples\":%llu,\"maxRun\":%u},"
         "\"limiterControlledOutput\":{\"peakDb\":%.2f,\"truePeakEstimateDb\":%.2f,\"limiterActive\":%s,"
@@ -419,7 +466,9 @@ std::string DynamicsProcessor::metadataJson() const {
         t.ready ? "true" : "false", p.bypass ? "true" : "false",
         static_cast<double>(p.trimDb), static_cast<double>(p.thresholdDb), static_cast<double>(p.ratio),
         static_cast<double>(p.attackMs), static_cast<double>(p.releaseMs), static_cast<double>(p.kneeDb),
-        static_cast<double>(p.makeupDb), static_cast<double>(p.ceilingDb), static_cast<double>(p.limiterReleaseMs),
+        static_cast<double>(p.makeupDb), static_cast<double>(p.ceilingDb),
+        tpl ? "dBTP" : "dBFS sample peak", static_cast<double>(p.limiterReleaseMs),
+        tpl ? "true-peak lookahead (8x, synthetic-validated)" : "sample-peak lookahead", tpl ? "true" : "false",
         i.processingDelaySamples, i.sampleRateHz,
         static_cast<double>(t.inputPeakDb), t.inputNearFullScale ? "true" : "false",
         t.inputPossibleClipping ? "true" : "false", static_cast<unsigned long long>(t.inputNearFullScaleSamples),

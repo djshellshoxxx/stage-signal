@@ -35,6 +35,12 @@ public:
     // Editor commands (pool membership, cue list). Undoable.
     ActionResult submitEdit(const EditCommand& e);
 
+    // REQ-D09: the app reports whether the capture device is present and delivering. Audio is assumed present
+    // until told otherwise. Not a show-state edit: it never bumps the revision and is not undoable.
+    void setAudioAvailable(bool available);
+    // Continue (default) only reports a confirmed loss; Idle also sets ShowSnapshot::audioIdle. Takes effect on the next tick.
+    void setAudioLossPolicy(AudioLossPolicy p);
+
     // Operator 'bar' action: declare that `at` is a downbeat. Bars are counted from here.
     void markDownbeat(Ns at);
 

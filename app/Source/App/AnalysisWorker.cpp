@@ -9,6 +9,7 @@ bool AnalysisWorker::ensurePrepared(const AudioBlockView& v) {
     if (!analyzer_.prepare(v.rateHz, v.channels).ok()) { havePrepared_ = false; return false; }
     ss::dynamics::DynamicsConfig cfg;
     cfg.sampleRateHz = v.rateHz; cfg.inChannels = v.channels; cfg.monoToStereo = false;
+    cfg.truePeakLimiter = truePeakLimiter_.load(std::memory_order_relaxed);
     auto info = dyn_.prepare(cfg);
     if (!info.ok()) { havePrepared_ = false; return false; }
     outCh_ = info.value().outChannels;
@@ -39,7 +40,9 @@ std::size_t AnalysisWorker::step() {
         blocks_.fetch_add(1, std::memory_order_relaxed);
     }
     if (n && havePrepared_) {
-        features_.publish(analyzer_.snapshot());
+        const ss::FeatureSnapshot fs = analyzer_.snapshot();       // consumes the analyser's onset latch
+        if (fs.onsetFired) onsets_.fetch_add(1, std::memory_order_relaxed);
+        features_.publish(fs);
         ss::render::AudioVisualInput av;
         analyzer_.copySpectrum(av.spectrum);
         analyzer_.copyWaveform(av.waveform);

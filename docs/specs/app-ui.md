@@ -391,3 +391,9 @@ H tests run in CI under `xvfb-run` using the standalone binary's `--selftest` en
 - [S2] JUCE `8.0.16-security` headers: `juce_Component.h` (accessibility, focus APIs), `juce_AccessibilityHandler.h` (`postAnnouncement`), `juce_Desktop.h` (dark mode), `juce_VBlankAttachment.h`, `native/accessibility/` directory listing (no Linux backend).
 - [S3] Fonts under OFL in the Google Fonts repository: `ofl/bigshouldersstencil/OFL.txt`, `ofl/allertastencil/OFL.txt`, `ofl/sairastencilone/OFL.txt` on raw.githubusercontent.com/google/fonts (fetched 2026-10-20).
 - [S4] StageSignal spec v0.1 sections 11, 12, 13, 16, 19; addendum v0.2; `core/base/include/ss/base/actions.hpp`; `core/model/include/ss/model/show_model.hpp`.
+
+## Added controls (28 Oct 2026)
+- **Setup > Audio:** "If audio is lost: keep the show running / show the idle screen" (`setup.audio.losspolicy`, pref `audio.losspolicy`, applied at once) and "True-peak limiter for recording" (`setup.audio.truepeak`, pref `dynamics.truepeak`, applies at the next start; the limiter itself is the opt-in described in `dynamics.md`).
+- **Media/Text:** "Show for" (until cleared, 5, 10, 30, 60 s), fade (none, 0.5, 1, 2 s) and "Scroll across" (`text.duration`, `text.fade`, `text.scroll`), used by the next Publish. `text.y` and `text.size` have no control yet (default bottom banner).
+- All go through `SetPref`, which now refuses a value outside each key's vocabulary (`AppShell.cpp`) instead of storing it. Tests: `audience: SetPref validates ...`, `audience: operator controls write the saved preferences`.
+- Not done: a Setup-tab indicator of the BPM/key overlay state per output (the toggle still always draws "off"), and persisting that toggle in the show file.

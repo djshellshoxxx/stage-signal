@@ -57,7 +57,7 @@ If you already have checkouts, point CMake at them to skip the download:
 # Configure the app with local JUCE and clap-juce-extensions checkouts
 cmake -S . -B build-app -G Ninja -DSS_BUILD_APP=ON -DSS_BUILD_TESTS=OFF \
   -DSS_JUCE_DIR=/path/to/JUCE -DSS_CLAP_EXT_DIR=/path/to/clap-juce-extensions
-cmake --build build-app --target StageSignal_Standalone StageSignal_CLAP
+cmake --build build-app --target StageSignal_Standalone StageSignal_VST3 StageSignal_CLAP
 ```
 
 Without those options CMake downloads both at the pinned commits.
@@ -77,7 +77,13 @@ sudo apt-get install -y --no-install-recommends ninja-build pkg-config libasound
 
 ## Running the app
 
-The app on `main` is a placeholder that opens a window with the name on it. The build is still useful as a compile check for the JUCE layer.
+The application connects desktop adapters, analysis, rendering, show control, persistence and the operator UI. Run its fake-adapter functional checks on Linux with:
+
+```sh
+xvfb-run -a build-app/app/StageSignal_artefacts/Release/Standalone/StageSignal --selftest all
+```
+
+The checks exercise application wiring; they do not qualify physical audio, display or lighting hardware.
 
 ## Common problems
 

@@ -5,9 +5,11 @@
 
 namespace {
 // Standalone reports wrapperType_Standalone. CLAP (clap-juce-extensions) reports wrapperType_Undefined, so
-// "anything else" is treated as CLAP (app-shell 7.1). Refine with clap_properties::is_clap if that ever matters.
+// VST3 has its own wrapper type; CLAP uses the same plugin-mode safety and pass-through policy.
 ss::app::HostKind hostKindFor(juce::AudioProcessor::WrapperType t) {
-    return t == juce::AudioProcessor::wrapperType_Standalone ? ss::app::HostKind::Standalone : ss::app::HostKind::Clap;
+    if (t == juce::AudioProcessor::wrapperType_Standalone) return ss::app::HostKind::Standalone;
+    if (t == juce::AudioProcessor::wrapperType_VST3) return ss::app::HostKind::Vst3;
+    return ss::app::HostKind::Clap;
 }
 }  // namespace
 
@@ -64,6 +66,18 @@ void StageSignalProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     }
     // HostMode decides what the host hears: standalone is silent (monitoring off), CLAP is bit-exact passthrough.
     if (mode_->clearsProcessorOutput()) buffer.clear();
+}
+
+void StageSignalProcessor::getStateInformation(juce::MemoryBlock& dest) {
+    auto c = ensureController();
+    auto blob = c->getStateBlob();                       // a bad state is never thrown across the host boundary
+    if (blob.ok()) dest.replaceAll(blob.value().data(), blob.value().size());
+}
+
+void StageSignalProcessor::setStateInformation(const void* data, int size) {
+    if (data == nullptr || size <= 0) return;
+    auto c = ensureController();
+    c->setStateBlob(data, static_cast<std::size_t>(size));     // validated first; on failure the current state stays; always disarmed
 }
 
 juce::AudioProcessorEditor* StageSignalProcessor::createEditor() { return new StageSignalEditor(*this); }

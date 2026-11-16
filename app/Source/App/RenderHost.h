@@ -26,6 +26,19 @@ struct SceneTable {
 
 struct OutputSpec { OutputId id = 0; std::uint32_t width = 800, height = 600; int rotationDeg = 0; };
 
+// Per-output audience policy (REQ-A09, REQ-S05): which of text, BPM/key, branding and diagnostics an output may show.
+// Outputs without an entry use the compositor default (text on, everything else off).
+struct OutputPolicyEntry { OutputId id = 0; ss::compose::OutputPolicy policy; };
+
+// One published text change, handed from the control side to the RENDER thread (newest wins). `target` selects the
+// outputs that change (kAllOutputs = every output); outputs not targeted keep whatever text they already show.
+struct TextRequest {
+    std::uint64_t seq = 0;
+    bool clear = false;
+    OutputId target = kAllOutputs;
+    ss::compose::TextItem item;
+};
+
 struct RenderStats {
     std::uint64_t framesRendered = 0, framesDropped = 0;
     double fpsMeasured = 0.0, lastFrameMs = 0.0, worstFrameMs = 0.0;
@@ -49,6 +62,10 @@ public:
     // Any thread. Applied by the render thread at the next frame boundary (allocates there, not per frame).
     void setOutputs(std::vector<OutputSpec> specs);
     void setLayerSource(IRenderLayerSource* s) { layers_ = s; }       // before the thread starts
+    // Any thread. Applied by the render thread at the next frame boundary.
+    void setPolicies(std::vector<OutputPolicyEntry> entries);
+    // Any thread. `seq` must increase with every request; the render thread applies each output at most once per seq.
+    void publishText(std::shared_ptr<const TextRequest> r) { text_.publish(std::move(r)); }
 
     // RENDER thread. Renders and publishes one frame per output. Returns the number of frames published.
     std::size_t renderFrame();
@@ -56,8 +73,12 @@ public:
     // Any thread.
     std::shared_ptr<const SharedFrame> latestFrame(OutputId id) const;
     RenderStats stats() const;
-    double targetFps() const { return targetFps_; }
-    void setTargetFps(double fps) { targetFps_ = fps; }                // before the thread starts
+    double targetFps() const { return targetFps_.load(std::memory_order_relaxed); }
+    void setTargetFps(double fps) { targetFps_.store(fps, std::memory_order_relaxed); }   // any thread (perf adaptation)
+    // Optional palette tint from the key colour (FEAT-002): a gentle multiply on the scene frames, off by default.
+    void setPaletteTint(bool on, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
+        tint_.store(on ? (0x01000000u | (std::uint32_t(r) << 16) | (std::uint32_t(g) << 8) | b) : 0u, std::memory_order_relaxed);
+    }
 
 private:
     struct OutputRender {
@@ -70,6 +91,9 @@ private:
         ss::render::EffectScratch fx;
         Ns sceneStartNs = 0;
         std::uint64_t sequence = 0;
+        ss::compose::TextLayer text;                // published text for this output (RENDER thread only)
+        std::uint64_t textSeq = 0;                  // last TextRequest applied
+        ss::compose::OverlayInfo overlay;           // BPM/key/clip info refreshed every frame
     };
     void applyStaged();
     void ensureScene(OutputRender& o, std::unique_ptr<ss::render::SceneRenderer>& r, std::uint32_t& cur,
@@ -82,7 +106,16 @@ private:
     const ss::LatestMailbox<ss::FeatureSnapshot>& features_;
     const ss::LatestMailbox<ss::render::AudioVisualInput>& visual_;
     IRenderLayerSource* layers_ = nullptr;
-    double targetFps_ = 25.0;
+    std::atomic<double> targetFps_{25.0};
+    std::atomic<std::uint32_t> tint_{0};
+
+    LatestShared<TextRequest> text_;
+    std::mutex policyMutex_;
+    std::vector<OutputPolicyEntry> policies_;
+    std::atomic<std::uint64_t> policyVersion_{0};
+    std::uint64_t appliedPolicyVersion_ = ~0ull;   // RENDER thread only
+    std::vector<OutputPolicyEntry> activePolicies_;  // RENDER thread only: copy of policies_ at appliedPolicyVersion_
+    void applyPolicies();
 
     std::mutex stageMutex_;
     std::vector<OutputSpec> staged_;

@@ -119,6 +119,8 @@ std::string fmt2(double v) {
 struct ShowEngine::Impl {
     const IClock* clock_;
     Tunables tun_;
+    AudioHealthMonitor audioMon_;
+    bool audioAvail_ = true;                 // REQ-D09: assumed present until the app reports otherwise
     mutable std::mutex mu_;
 
     // --- document and derived tables
@@ -183,7 +185,7 @@ struct ShowEngine::Impl {
     Stats st_;
     ShowSnapshot last_;
 
-    Impl(const IClock* c, Tunables t) : clock_(c), tun_(t), grid_(t.beatsPerBar) {
+    Impl(const IClock* c, Tunables t) : clock_(c), tun_(t), audioMon_(t.audioHealth), grid_(t.beatsPerBar) {
         installDoc(model::ShowDocument{});
         mode_ = doc_.mode;
         last_ = buildSnapshot(0);
@@ -219,6 +221,7 @@ struct ShowEngine::Impl {
             case EventKind::DropScheduled: case EventKind::Drop: case EventKind::DropSkipped: jk = "drop"; break;
             case EventKind::SnapshotStored: case EventKind::SnapshotRecalled: jk = "snapshot"; break;
             case EventKind::UndoApplied: case EventKind::RedoApplied: case EventKind::EditApplied: jk = "edit"; break;
+            case EventKind::AudioLost: case EventKind::AudioRestored: jk = "device"; break;
             case EventKind::DocumentLoaded: jk = "doc"; break;
             case EventKind::ActionRejected: jk = "reject"; break;
         }
@@ -289,6 +292,11 @@ struct ShowEngine::Impl {
         for (auto& s : slots_) s = LookSlot{};
         bank_ = 0; selectedOutput_ = kAllOutputs;
         strobeLocked_ = strobeLocked_ || doc_.strobingDisabled;   // loading never re-enables strobing
+        // Overrides saved with the show are applied (REQ-A06/A08). A show without one leaves the operator's running override
+        // alone, as before: a load never silently drops it.
+        if (doc_.overrides.tempoActive) tempoOvr_ = {true, doc_.overrides.bpm, doc_.overrides.tempoTap ? ValueSource::Tap : ValueSource::Manual};
+        if (doc_.overrides.keyActive) keyOvr_ = {true, doc_.overrides.tonic, doc_.overrides.keyMinor};
+        taps_.clear();
         inbox_.clear(); pending_.clear();
         ++revision_; dirty_ = false;
         emit(EventKind::DocumentLoaded, kAllOutputs, 0, -1, now,
@@ -1105,6 +1113,8 @@ struct ShowEngine::Impl {
         for (int i = 0; i < Limits::kSnapshotSlots; ++i) s.slots[i] = slots_[i];
         s.undoDepth = static_cast<std::uint32_t>(undo_.size()); s.redoDepth = static_cast<std::uint32_t>(redo_.size());
         s.wantedTier = wantedTier_; s.dropPending = dropArmed_;
+        s.audioLost = audioMon_.lost();
+        s.audioIdle = audioMon_.lost() && tun_.audioLossPolicy == AudioLossPolicy::Idle;
         return s;
     }
 };
@@ -1168,6 +1178,16 @@ ActionResult ShowEngine::submitEdit(const EditCommand& e) {
     ++m.st_.accepted;
     r.accepted = true;
     return r;
+}
+
+void ShowEngine::setAudioAvailable(bool available) {
+    std::lock_guard<std::mutex> lk(impl_->mu_);
+    impl_->audioAvail_ = available;
+}
+
+void ShowEngine::setAudioLossPolicy(AudioLossPolicy p) {
+    std::lock_guard<std::mutex> lk(impl_->mu_);
+    impl_->tun_.audioLossPolicy = p;
 }
 
 void ShowEngine::markDownbeat(Ns at) {
@@ -1245,6 +1265,14 @@ ShowSnapshot ShowEngine::tick(Ns nowIn, const FeatureSnapshot& f) {
             }
         }
 
+        // audio health (REQ-D09): debounced loss; transient state, never a document edit
+        {
+            const AudioHealthState ah = m.audioMon_.update(now, m.audioAvail_);
+            if (ah.changed)
+                m.emit(ah.lost ? EventKind::AudioLost : EventKind::AudioRestored, kAllOutputs, 0, -1, now,
+                       m.tun_.audioLossPolicy == AudioLossPolicy::Idle ? "policy=idle" : "policy=continue");
+        }
+
         // automation
         m.dropStep(now);
         if (!m.paused_ && !m.override_) {
@@ -1286,6 +1314,11 @@ model::ShowDocument ShowEngine::document() const {
     model::ShowDocument d = impl_->doc_;
     d.mode = impl_->mode_;
     d.strobingDisabled = impl_->strobeLocked_;
+    d.overrides = model::TempoKeyOverrides{};
+    if (impl_->tempoOvr_.active) {
+        d.overrides.tempoActive = true; d.overrides.bpm = impl_->tempoOvr_.bpm; d.overrides.tempoTap = impl_->tempoOvr_.src == ValueSource::Tap;
+    }
+    if (impl_->keyOvr_.active) { d.overrides.keyActive = true; d.overrides.tonic = impl_->keyOvr_.tonic; d.overrides.keyMinor = impl_->keyOvr_.minor; }
     return d;
 }
 

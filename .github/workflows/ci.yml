@@ -45,9 +45,33 @@ jobs:
         run: |
           cmake -S . -B build-app -G Ninja -DSS_BUILD_APP=ON -DSS_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-      - name: Build standalone + CLAP
-        run: cmake --build build-app --target StageSignal_Standalone StageSignal_CLAP
+      - name: Build standalone + VST3 + CLAP
+        run: cmake --build build-app --target StageSignal_Standalone StageSignal_VST3 StageSignal_CLAP
       - name: Headless smoke (must stay alive 8 s without crashing)
         run: |
           BIN=$(find build-app -type f -name StageSignal -perm -u+x | head -1)
           set +e; timeout 8 xvfb-run -a "$BIN"; rc=$?; test "$rc" -eq 124
+
+      - name: Application functional self-tests
+        run: |
+          BIN=build-app/app/StageSignal_artefacts/Release/Standalone/StageSignal
+          test -x "$BIN"
+          SS_DATA_DIR="$RUNNER_TEMP/stagesignal-selftests" xvfb-run -a "$BIN" --selftest all
+
+  app-macos:
+    name: app compile (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: macos-arm64, os: macos-26, cmake: "-DCMAKE_OSX_ARCHITECTURES=arm64" }
+          - { name: macos-x86_64, os: macos-15-intel, cmake: "-DCMAKE_OSX_ARCHITECTURES=x86_64" }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: |
+          cmake -S . -B build-app -G Ninja -DSS_BUILD_APP=ON -DSS_BUILD_TESTS=OFF -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 ${{ matrix.cmake }}
+      - name: Build standalone app
+        run: cmake --build build-app --target StageSignal_Standalone

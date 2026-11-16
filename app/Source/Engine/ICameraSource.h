@@ -25,6 +25,7 @@ public:
     virtual ss::Status open(const std::string& id, ICameraSink* sink) = 0;   // starts Previewing, never Published
     virtual void close() = 0;
     virtual CameraState cameraState() const = 0;
+    virtual void poll() {}  // MEDIA thread: drain newest capture frame; device callbacks only enqueue references.
 };
 
 class NullCameraSource final : public ICameraSource {

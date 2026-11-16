@@ -128,11 +128,27 @@ changes, bypass toggles, telemetry, engine adoption, resampler, clock map). `tes
 
 ## Status
 - Done: everything in the task list items 1-4, tested on Linux/gcc 13 with `-Wall -Wextra -Wshadow` (no warnings), 3 consecutive runs green, ASan/UBSan debug run.
-- Partial: true-peak is a meter only; **true-peak limiter not implemented and not qualified** (section 12 enhanced profile open). The 4x meter filter is not the BS.1770 reference set.
+- Partial: the default limiter is a sample-peak limiter. An opt-in **true-peak limiter** exists (`DynamicsConfig::truePeakLimiter`, app pref `dynamics.truepeak=1`, read at start) but is **validated on synthetic signals only and not qualified on music** (section 12 enhanced profile still open). The 4x meter filter is not the BS.1770 reference set.
 - Not done / not qualified: no RF64; no fsync/durability qualification; no WASAPI/QPC packet source (the app feeds `ClockMap`); no flash-click A/V sync measurement or 1 h drift run (hardware);
   no CPU-budget measurement on the BASE-tier machine (design cost is roughly 100 multiply-adds per frame including the optional true-peak meter, turn it off with `truePeakMeter=false`);
   Windows/macOS not built here (portable C++17, CI covers them). Sync acceptance (80/40 ms, 20 ms/h) is therefore unverified; only the logic is.
 - Tolerances (0.1 dB curve, 0.1 dB ceiling) are the spec's proposed values, met in these offline tests.
+
+## True-peak limiter (opt-in, 28 Oct 2026)
+**What it is.** Same lookahead structure as the sample-peak limiter (`LimiterStage` in `processor.cpp`), but the required gain comes from an 8x oversampled detector
+(`TruePeakDetector8`, 32 taps per phase, Kaiser beta 3.0, one shared template with the 4x meter). The detector reports a region (between samples r and r+1) 16 samples late and
+an output sample is touched by 32 regions, so the required gain is the minimum over the last 32 reports and the wet and dry paths are delayed by `kTruePeakExtraDelay` = 31
+more samples (0.65 ms at 48 kHz); `PrepareInfo::processingDelaySamples` includes it. Ceiling unit becomes dBTP; metadata JSON says `"trueTpLimiter":true`.
+**Margin.** The limiter aims `kTruePeakMarginDb` = 0.45 dB below the set ceiling, because the detector reads a few tenths of a dB low on loud broadband noise
+(measured: per-window worst about 0.9 dB at 32 taps, 0.36 dB at 48, 0.17 dB at 64, against a 129-tap 16x reference) and because the gain ramp is not flat across the 32-sample support. The ceiling is therefore an upper bound.
+A second 1 ms safety stage was tried and removed: it shares the detector's blind spots and changed nothing.
+**Measured (synthetic, Linux/gcc, ceiling -1 dBTP, reference = independent 16x/129-tap meter in `test_truepeak_limiter.cpp`).** fs/4 sine at 45 deg, 0.45 and 0.49 fs sines, fs/8 square,
+++-- pattern, loud log sweep, impulse pairs read -1.40 .. -1.59 dBTP; bursty full-band white noise at 1.4x full scale reads -0.94 dBTP (0.06 dB over the ceiling, inside the 0.1 dB
+tolerance). Ceilings -3 and -0.5 dBTP give the same offsets. Below the ceiling the output equals the input delayed by `processingDelaySamples` to within 1e-6.
+The sample-peak limiter on the same set lets at least 4 of 8 signals exceed -1 dBTP by more than 0.5 dB (test `the sample-peak limiter lets the same signals exceed`).
+**Cost.** About 2.8 % of one modern core for stereo 48 kHz (0.8 % without it), measured on this build machine; **not measured on the BASE tier**. Estimate: 256 multiply-adds per sample per channel; leave it off on weak machines.
+**Not claimed.** No music corpus, no hardware, no codec round trip, no BS.1770 conformance test set. Mono-to-stereo, 44.1/96 kHz are tested for transparency only. Bypass and allocation-free `process()` are tested.
+The app applies the pref at start only; the dynamics processing delay is not yet applied to recorded audio timestamps anywhere in the app (existing gap, 5 ms plus this).
 
 ## Integration API
 ```

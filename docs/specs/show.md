@@ -158,8 +158,16 @@ undo/redo coalesce/depth/mode/pool/cues/snapshots; journal sink/queue bounds.
   while locked (the model has no per-effect strobe flag); bar counting is anchor-based by design (no detected downbeat); a Programmed cue
   drives only the primary root; the tempo/key overrides are not part of `ShowDocument` so a saved show does not carry them (REQ-A06/A08 "save/load
   preserves override" needs a model field or persist to store `tempoOvr/keyOvr` and call a setter; engine API for this is `SetBpm/SetKey` actions).
-* **Not done:** D09 idle-screen / audio-loss policy (needs audio-health input, not in `FeatureSnapshot`; `silent` is used only for the Energy Arc
-  preference); no UI/renderer wiring; no 3-thread stress test (single mutex design only reasoned about); not run on MSVC/macOS here (gcc and clang on Linux only).
+* **REQ-D09 (audio-loss policy), added 28 Oct 2026:** `AudioHealthMonitor` (`ss/show/audio_health.hpp`) debounces the app's "capture is
+  delivering" flag (`ShowEngine::setAudioAvailable`). Loss is confirmed after `detectNs` (default 1 s, hard max 2 s, invalid config falls back to
+  defaults), cleared after `restoreHoldNs` (default 500 ms) of stable audio. `ShowSnapshot::audioLost` reports the confirmed loss; `audioIdle`
+  is true only with `AudioLossPolicy::Idle` (`setAudioLossPolicy`, default Continue). Neither changes the revision, blackout latches or scene.
+  Journal kind `device` (`AudioLost` / `AudioRestored`). App wiring: `AppController::showTick` feeds `analysis_.signalAlive`, `RenderHost`
+  draws the idle screen and hides media/text layers while `audioIdle`, pref key `audio.losspolicy` = `idle` | `continue`. **Not done:** a
+  Setup-tab control for the policy (pref only), a configurable idle-screen *content* (the compositor's built-in idle frame is used), and
+  persisting the policy in the show document (it is an app preference). Tests: `REQ-D09:` cases in `tests/unit/show/test_audio_health.cpp`,
+  app self-test `shell: audio loss idle`.
+* **Not done:** no UI/renderer wiring beyond D09; no 3-thread stress test (single mutex design only reasoned about); not run on MSVC/macOS here (gcc and clang on Linux only).
 * **Needs from others:** an ActionId for "mark downbeat" (the engine exposes `markDownbeat(Ns)` meanwhile); a `ShowDocument` field for tempo/key overrides;
   the app dispatcher must route non-show ids (recording, broadcast, DisarmLighting...) to their owners.
 
@@ -198,3 +206,11 @@ ss::show::ShowSnapshot s = eng.tick(clock.nowMonotonic(), latestFeatureSnapshot)
 // Action conventions: SceneSelect value=slot 0..7 (fixtureId!=0 = absolute scene id); Resume value 0 continue / 1 advance;
 // SetMode 0 Auto/1 Programmed/2 Hybrid; SetKey 0..23 (+12 = minor); GoToCue value = cue index; SelectOutput value = id or -1.
 ```
+
+## Overrides saved with the show (REQ-A06 / REQ-A08, 28 Oct 2026)
+`ShowDocument::overrides` (`model::TempoKeyOverrides`) holds the operator's tempo override (BPM 30..300, labelled Manual or Tap) and manual key
+(tonic 0..11 plus minor). `ShowEngine::document()` fills it from the live override; loading a document that carries one applies it
+(the tap history is cleared). A document without an override keeps the operator's running override, as before: a load never silently drops it.
+Invalid values (BPM outside 30..300 or not finite, tonic outside 0..11) are rejected by `validateDocument` before any state changes.
+Persistence: JSON keys `tempoOverride {bpm, source: manual|tap}` and `keyOverride {tonic, minor}`, written only when active; schema minor is now 1 and
+older readers report the keys as unknown fields. Tests: `show/test_overrides.cpp`, `persist/test_show_json.cpp`, app `shell: overrides travel with the state`.

@@ -1,7 +1,7 @@
 # app-shell: AppController, threads, lifecycle, standalone vs CLAP
 
 Status: spec v0.2-draft, 20 Oct 2026. Layer: `app/Source/App` and `app/Source/Plugin`. Baseline: `StageSignal-Specification-v0.1.md` (spec) section 8 and 10, `docs/spec-addendum-v0.2.md` (DEC-04, DEC-11), `docs/ARCHITECTURE.md`.
-Nothing here is implemented yet. Every "verified" below means: read in the pinned source tree (JUCE `8.0.16-security`, sha `ea77444750de45e036e0279bb0291144bf8e3688`; clap-juce-extensions `7adee3a1`, read at `main` on 2026-10-20) or in a cited document, not run.
+Implementation status (shell-integration, 21 Oct 2026): see the "Implementation status" section just before Sources. Every "verified" below means: read in the pinned source tree (JUCE `8.0.16-security`, sha `ea77444750de45e036e0279bb0291144bf8e3688`; clap-juce-extensions `7adee3a1`, read at `main` on 2026-10-20) or in a cited document, not run.
 
 ## 1. Scope
 
@@ -243,6 +243,33 @@ CLAP validation: the free-audio `clap-validator` project can load and exercise a
 - The crash marker proves "ended unclean", not why.
 - Thread priorities map differently per OS; `Priority::high` is a request.
 
+## Implementation status (shell-integration, 21 Oct 2026)
+
+Code: `App/AppController.*`, `App/AppShell.cpp` (shell services), `App/ShellImpl.h`, `App/ShellState.*` (prefs, lock text, state blob), `App/StandaloneApp.cpp`, `App/ControllerHost.*`, `Plugin/PluginProcessor.cpp`. Self-tests in `Tests/ShellIntegrationTests.cpp` (run headless, fake adapters, no hardware).
+
+| Item | State | Verified |
+|---|---|---|
+| Startup steps 2, 3, 4, 14 | Done. Settings (`settings.json` via core/persist, `prefs.txt` for UI prefs); unreadable settings keep a `.bad` copy and fall back to defaults. `running.lock` JSON written at step 14, removed in stage 8. | `shell: recovery marker`, `shell: show persistence` |
+| Recovery mode | Done: stale lock (pid dead) or an autosave newer than the file enters it. Sample show, paused, nothing armed; banner with Restore autosave / Open last saved / Start empty; nothing is restored without a click. | `shell: recovery marker` (pid-dead path). Pid check on Windows is untested code |
+| Persist-backed show, 30 s autosave, Save | Load of the last show (or `--show`), save/save-as, dirty flag by document hash, autosave through `persist::ShowSession` (recovery file). | Save, reload, `--safe` tested. The 30 s autosave timer itself is core-tested (`AutosaveController`), not waited for in the app test |
+| `--show`, `--safe`, single-instance lock, quit confirm | Done in `StandaloneApp.cpp` (`InterProcessLock` plus JUCE's own pipe hand-off; async alert for unsaved work / recording / broadcast). | Not run (needs a window and a human) |
+| Plugin state blob | Done: `SSST`, version, length, JSON, SHA-256, 2 MiB cap with reference form; set stages, validates, swaps on CONTROL, always disarms; unknown JSON keys (armed, keys) ignored. | `shell: state blob roundtrip`, `shell: state blob never arms`. No CLAP host was used |
+| Secondary instance | Done: second controller in the same process gets fake adapters, no files, every output action refused, banner. | `shell: secondary mode`. Not exercised in a real host |
+| Router, palette keymap, perf cores | Instantiated. Perf adaptation runs at 1 Hz from render deadline misses and CPU and lowers the render rate. Keymap overrides load from prefs but the Live-tab shortcut table is still the static default. Router receives the topology from the message thread; audience windows still use `OutputManager` directly. | Perf ladder not driven to a shed step in a test |
+| Analysis onset drain | `AnalysisWorker::onsetsSince(cursor)`; the show tick no longer misses onsets. | Counter logic only |
+| Shutdown with a stuck writer | Stage 2 runs on a helper with a real timeout; stage 6 releases it; joined in stage 8. | `shell: shutdown stuck writer` |
+| `shell: callback no alloc` | `Hooks/AllocHook.cpp` (standalone executable only) counts `operator new` on the calling thread: 0 in 10 000 `AudioIngress::pushBlock` calls. The full device callback and `processBlock` are not covered. | Linux x86-64 |
+| Engines fed | MIDI engine actions enter the inbox with source Midi; show load configures the MIDI mapping table and the lighting patch/destination; an armed show drives the (fake) UDP sink; disarm silences it. | `shell: midi feeds actions`, `shell: lighting driven when armed` |
+| Commands | Handlers for 1 to 6 (audio device, lighting interface/destination, MIDI ports), 20 to 29, 22 to 24 (report folder export, support bundle zip, doctor no-op) and 40 to 49. Import media, remove media and publish text return a stated "needs the media worker". | Handlers run via the IO thread; real devices untested |
+| Musical features | `PhraseTracker` (per bar), `KeyColorMapper` (25 Hz), `BeatLooks` on a shell-side `BeatGrid` mirror feed `UiSnapshot::music`, an optional render tint (pref `ui.keytint`) and an opt-in lighting "beat pulse" (pref `lighting.beatlook`, cue layer, strobe lock respected). Live tab shows phrase text and a key swatch. | `shell: phrase wiring`, `key colour wiring`, `beat looks wiring`. Phrase-quantised auto scene changes are NOT done: the show engine owns auto timing and has no phrase hook (needs a `show` change); auto changes still quantise to the bar |
+
+| Media wiring | `DesktopAdapters` now uses `makeNativeProcessSupervisor()`; the worker gets `render_.latestFrame` and its config (`ConfigureMedia`, `SetFfmpegPath`, `SetRecordFolder`, broadcast endpoint and key reference `ref:broadcast-key`); AddMarker reaches the recorder; Import / Remove / Publish text / Clear text work; Start broadcast sends value 0 (summary) and the dialog opens from `BroadcastView::awaitingConfirm`, Confirm sends value 1, Cancel sends Stop. | `shell: media wiring`; real ffmpeg and a real stream not run here |
+| Thread safety fix | The startup log was read by CONTROL while `start()` still appended: a `std::length_error` ended the CONTROL thread silently (JUCE swallows thread exceptions). Now mutex-guarded, and `Loop::run` reports any worker exception and runs the body again. Also fixed a 256-sample buffer read with 1000 frames in `adapters-audio-no-device` (found with ASan). | `all` 4 of 4 clean; ASan + UBSan run of `all` clean |
+
+Phrase-quantised auto scene changes: not possible from the app layer. The show engine owns auto timing and its `Tunables` are fixed at construction; a hook (for example a `phraseGate` callback or tunable) has to be added in `core/show`. Until then auto changes quantise to the bar only.
+
+Not done: window position persistence per display identity; wizard completion persistence; display role storage is a pref key reserved (`display.*`), not yet read by the audience window code; `shell: callback worst time`, `safety latch beats stalled control`, `no sockets at idle`, `clap passthrough` tests.
+
 ## Sources
 
 - [S1] JUCE `8.0.16-security` source tree, files named inline (tag sha `ea77444750de45e036e0279bb0291144bf8e3688`), read 2026-10-20.
@@ -250,3 +277,15 @@ CLAP validation: the free-audio `clap-validator` project can load and exercise a
 - [S3] CLAP 1.2.10 headers, `include/clap/ext/gui.h`: https://github.com/free-audio/clap, read 2026-10-20.
 - [S4] StageSignal spec v0.1 sections 8, 10, 16, 17 and addendum v0.2 (in repo).
 - [S5] `.github/workflows/ci.yml` (Xvfb smoke step), `app/CMakeLists.txt`, `app/Source/Plugin/PluginProcessor.cpp` (in repo).
+
+## Audience policy and published text (28 Oct 2026)
+`RenderHost::setPolicies` gives each visual output its compositor `OutputPolicy` (text, BPM/key, branding, diagnostics), derived from the
+display router's routes by `AppController::shellPushAudiencePolicies` (called after every show load and after `ToggleOverlayBpmKey`).
+`RenderHost` fills `FrameInputs::overlay` with the effective tempo and key from the show snapshot and the input-clip flag; the compositor
+draws only what the policy allows, and never draws an Unknown tempo or key as a number. Published text is a `TextRequest`
+(`RenderHost::publishText`, newest wins, `seq` increases) holding a `compose::TextItem`; each output applies a request at most once, only
+when `target` is kAllOutputs or its id, into its own `TextLayer` (placement, size, duration, fade, one bounded scroll pass). `MediaWorker::setTextBanner`
+rasterises on the calling thread; `clearTextBanner` and `TextClear` clear every output. Options come from prefs `text.duration` (0 = hold),
+`text.fade`, `text.scroll`, `text.y`, `text.size`; out-of-range values fall back to defaults. Not done: UI controls for those options, saving the
+BPM/key toggle in the show file, and a BPM/key toggle state shown in the Setup tab (it always draws "off").
+Tests: `Tests/AudienceSelfTests.cpp` (RenderHost with a fake clock, no threads).
